@@ -1,0 +1,24 @@
+[package]
+name = "stft-rs"
+description = "Simple, streaming-friendly STFT implementation"
+version = "0.1.0"
+edition = "2024"
+authors = ["David Maseda Neira <david.masedan@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/wizenink/stft-rs"
+
+[dependencies]
+ndarray = "0.16.1"
+num-traits = "0.2"
+rustfft = "6.4.1"
+
+[dev-dependencies]
+criterion = { version = "0.7.0", features = ["html_reports"] }
+ndarray-stats = "0.6.0"
+rand = "0.9.2"
+rand_distr = "0.5.1"
+
+[[bench]]
+name = "stft-bench"
+harness = false
+
