@@ -27,11 +27,16 @@ fn main() {
         })
         .collect();
 
-    println!("Processing {} samples ({:.2} seconds)", num_samples, duration_secs);
+    println!(
+        "Processing {} samples ({:.2} seconds)",
+        num_samples, duration_secs
+    );
 
     let spectrum = stft.process(&audio);
-    println!("STFT result: {} frames x {} frequency bins",
-             spectrum.num_frames, spectrum.freq_bins);
+    println!(
+        "STFT result: {} frames x {} frequency bins",
+        spectrum.num_frames, spectrum.freq_bins
+    );
     let mut magnitudes: Vec<(usize, f32)> = (0..spectrum.freq_bins)
         .map(|bin| {
             let c = spectrum.get_complex(0, bin);
@@ -60,7 +65,8 @@ fn main() {
         .sum::<f32>()
         / min_len as f32;
 
-    let signal_power: f32 = audio[..min_len].iter().map(|x| x.powi(2)).sum::<f32>() / min_len as f32;
+    let signal_power: f32 =
+        audio[..min_len].iter().map(|x| x.powi(2)).sum::<f32>() / min_len as f32;
     let snr = 10.0 * (signal_power / mse).log10();
 
     println!("MSE: {:.2e}", mse);

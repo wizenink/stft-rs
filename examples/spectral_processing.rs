@@ -28,7 +28,10 @@ fn main() {
         let mut spectrum = stft.process(&audio);
 
         let cutoff_bin = (500.0 / sample_rate * 4096.0) as usize;
-        println!("  Applying high-pass filter at bin {} (~500 Hz)", cutoff_bin);
+        println!(
+            "  Applying high-pass filter at bin {} (~500 Hz)",
+            cutoff_bin
+        );
 
         for frame in 0..spectrum.num_frames {
             for bin in 0..cutoff_bin {
@@ -101,5 +104,8 @@ fn main() {
 
     println!("Original energy: {:.2}", original_energy);
     println!("Processed energy: {:.2}", processed_energy);
-    println!("Energy ratio: {:.2}%", (processed_energy / original_energy) * 100.0);
+    println!(
+        "Energy ratio: {:.2}%",
+        (processed_energy / original_energy) * 100.0
+    );
 }

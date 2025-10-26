@@ -269,7 +269,8 @@ fn generate_window<T: Float + FromPrimitive>(window_type: WindowType, size: usiz
                 let i_t = T::from(i).unwrap();
                 let size_m1 = T::from(size - 1).unwrap();
                 let angle = two * pi * i_t / size_m1;
-                T::from(0.42).unwrap() - T::from(0.5).unwrap() * angle.cos() + T::from(0.08).unwrap() * (two * angle).cos()
+                T::from(0.42).unwrap() - T::from(0.5).unwrap() * angle.cos()
+                    + T::from(0.08).unwrap() * (two * angle).cos()
             })
             .collect(),
     }
@@ -442,7 +443,8 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
                         window_energy[pos + i] = window_energy[pos + i] + self.window[i];
                     }
                     ReconstructionMode::Wola => {
-                        window_energy[pos + i] = window_energy[pos + i] + self.window[i] * self.window[i];
+                        window_energy[pos + i] =
+                            window_energy[pos + i] + self.window[i] * self.window[i];
                     }
                 }
             }
@@ -632,8 +634,10 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
                     self.window_energy[buf_idx] = self.window_energy[buf_idx] + self.window[i];
                 }
                 ReconstructionMode::Wola => {
-                    self.overlap_buffer[buf_idx] = self.overlap_buffer[buf_idx] + sample * self.window[i];
-                    self.window_energy[buf_idx] = self.window_energy[buf_idx] + self.window[i] * self.window[i];
+                    self.overlap_buffer[buf_idx] =
+                        self.overlap_buffer[buf_idx] + sample * self.window[i];
+                    self.window_energy[buf_idx] =
+                        self.window_energy[buf_idx] + self.window[i] * self.window[i];
                 }
             }
         }
@@ -697,9 +701,11 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
 
     pub fn reset(&mut self) {
         self.overlap_buffer.clear();
-        self.overlap_buffer.resize(self.config.fft_size * 2, T::zero());
+        self.overlap_buffer
+            .resize(self.config.fft_size * 2, T::zero());
         self.window_energy.clear();
-        self.window_energy.resize(self.config.fft_size * 2, T::zero());
+        self.window_energy
+            .resize(self.config.fft_size * 2, T::zero());
         self.output_position = 0;
         self.frames_processed = 0;
     }
@@ -816,7 +822,7 @@ mod tests {
         // Generate test signal (127 hops = 127 * 1024 samples)
         let signal_len = 127 * 1024;
         let original: Vec<f32> = (0..signal_len)
-            .map(|i| ((i as f32 * 0.01).sin() * 0.1))
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
             .collect();
 
         let spectrum = stft.process(&original);
@@ -838,7 +844,7 @@ mod tests {
 
         let signal_len = 127 * 1024;
         let original: Vec<f32> = (0..signal_len)
-            .map(|i| ((i as f32 * 0.01).sin() * 0.1))
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
             .collect();
 
         let spectrum = stft.process(&original);
@@ -877,7 +883,7 @@ mod tests {
         // Generate test signal
         let signal_len = 127 * 1024;
         let original: Vec<f32> = (0..signal_len)
-            .map(|i| ((i as f32 * 0.01).sin() * 0.1))
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
             .collect();
 
         // For streaming, pad the signal to match batch behavior
@@ -926,7 +932,7 @@ mod tests {
 
         let signal_len = 127 * 1024;
         let original: Vec<f32> = (0..signal_len)
-            .map(|i| ((i as f32 * 0.01).sin() * 0.1))
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
             .collect();
 
         // Pad for streaming
@@ -973,7 +979,7 @@ mod tests {
         let batch_stft = BatchStft::new(config.clone());
         let signal_len = 50 * 1024;
         let original: Vec<f32> = (0..signal_len)
-            .map(|i| ((i as f32 * 0.01).sin() * 0.1))
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
             .collect();
 
         let batch_result = batch_stft.process(&original);
@@ -1051,7 +1057,7 @@ mod tests {
 
             let signal_len = 50 * 1024;
             let original: Vec<f32> = (0..signal_len)
-                .map(|i| ((i as f32 * 0.01).sin() * 0.1))
+                .map(|i| (i as f32 * 0.01).sin() * 0.1)
                 .collect();
 
             let spectrum = stft.process(&original);
@@ -1083,7 +1089,7 @@ mod tests {
 
         let signal_len = 20 * 1024;
         let original: Vec<f32> = (0..signal_len)
-            .map(|i| ((i as f32 * 0.01).sin() * 0.1))
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
             .collect();
 
         // All padding modes should work

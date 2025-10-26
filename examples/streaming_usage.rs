@@ -4,7 +4,10 @@ fn main() {
     let config = StftConfig::<f32>::default_4096();
 
     println!("Streaming STFT Demo");
-    println!("FFT size: {}, Hop size: {}", config.fft_size, config.hop_size);
+    println!(
+        "FFT size: {}, Hop size: {}",
+        config.fft_size, config.hop_size
+    );
     println!("Processing audio in chunks...\n");
 
     let mut stft = StreamingStft::new(config.clone());
@@ -40,11 +43,13 @@ fn main() {
         chunks_processed += 1;
 
         if chunks_processed % 20 == 0 {
-            println!("Processed {} chunks ({} samples), {} frames generated, {} samples reconstructed",
-                     chunks_processed,
-                     chunks_processed * chunk_size,
-                     total_frames,
-                     reconstructed.len());
+            println!(
+                "Processed {} chunks ({} samples), {} frames generated, {} samples reconstructed",
+                chunks_processed,
+                chunks_processed * chunk_size,
+                total_frames,
+                reconstructed.len()
+            );
         }
     }
 
@@ -66,10 +71,7 @@ fn main() {
     let end = (start + audio.len()).min(reconstructed.len());
     let reconstructed_unpadded = &reconstructed[start..end];
     let compare_len = audio.len().min(reconstructed_unpadded.len());
-    let signal_power: f32 = audio[..compare_len]
-        .iter()
-        .map(|x| x.powi(2))
-        .sum::<f32>();
+    let signal_power: f32 = audio[..compare_len].iter().map(|x| x.powi(2)).sum::<f32>();
 
     let noise_power: f32 = audio[..compare_len]
         .iter()
@@ -89,10 +91,12 @@ fn main() {
 
     let expected_latency = config.fft_size - config.hop_size;
     println!("\nLatency:");
-    println!("  Algorithmic: {} samples ({:.1} ms @ {} Hz)",
-             expected_latency,
-             expected_latency as f32 / sample_rate as f32 * 1000.0,
-             sample_rate);
+    println!(
+        "  Algorithmic: {} samples ({:.1} ms @ {} Hz)",
+        expected_latency,
+        expected_latency as f32 / sample_rate as f32 * 1000.0,
+        sample_rate
+    );
     println!("  Padding pre-roll: {} samples", pad_amount);
     println!("  Buffered: {} samples", stft.buffered_samples());
 }
