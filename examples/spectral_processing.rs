@@ -6,7 +6,12 @@ fn main() {
     for mode in [ReconstructionMode::Ola, ReconstructionMode::Wola] {
         println!("Testing {:?} mode:", mode);
 
-        let config = StftConfig::<f32>::new(4096, 1024, WindowType::Hann, mode)
+        let config = StftConfigBuilderF32::new()
+            .fft_size(4096)
+            .hop_size(1024)
+            .window(WindowType::Hann)
+            .reconstruction_mode(mode)
+            .build()
             .expect("Valid configuration");
 
         let stft = BatchStft::new(config.clone());

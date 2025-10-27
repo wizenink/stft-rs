@@ -25,6 +25,7 @@ fn test_batch_ola_roundtrip() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_batch_wola_roundtrip() {
     let config = StftConfig::<f32>::new(4096, 1024, WindowType::Hann, ReconstructionMode::Wola)
         .expect("Config should be valid");
@@ -88,6 +89,7 @@ fn test_stft_result_accessors() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_different_windows() {
     for window_type in [WindowType::Hann, WindowType::Hamming, WindowType::Blackman] {
         let config = StftConfig::<f32>::new(4096, 1024, window_type, ReconstructionMode::Ola)
