@@ -28,13 +28,19 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::Arc;
 
+mod utils;
+pub use utils::{apply_padding, deinterleave, deinterleave_into, interleave, interleave_into};
+
 pub mod prelude {
+    pub use crate::utils::{
+        apply_padding, deinterleave, deinterleave_into, interleave, interleave_into,
+    };
     pub use crate::{
         BatchIstft, BatchIstftF32, BatchIstftF64, BatchStft, BatchStftF32, BatchStftF64, PadMode,
         ReconstructionMode, Spectrum, SpectrumF32, SpectrumF64, SpectrumFrame, SpectrumFrameF32,
         SpectrumFrameF64, StftConfig, StftConfigF32, StftConfigF64, StreamingIstft,
         StreamingIstftF32, StreamingIstftF64, StreamingStft, StreamingStftF32, StreamingStftF64,
-        WindowType, apply_padding,
+        WindowType,
     };
 }
 
@@ -529,7 +535,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
 
     pub fn process_padded(&self, signal: &[T], pad_mode: PadMode) -> Spectrum<T> {
         let pad_amount = self.config.fft_size / 2;
-        let padded = apply_padding(signal, pad_amount, pad_mode);
+        let padded = utils::apply_padding(signal, pad_amount, pad_mode);
 
         let num_frames = if padded.len() >= self.config.fft_size {
             (padded.len() - self.config.fft_size) / self.config.hop_size + 1
@@ -580,7 +586,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
         spectrum: &mut Spectrum<T>,
     ) -> bool {
         let pad_amount = self.config.fft_size / 2;
-        let padded = apply_padding(signal, pad_amount, pad_mode);
+        let padded = utils::apply_padding(signal, pad_amount, pad_mode);
 
         let num_frames = if padded.len() >= self.config.fft_size {
             (padded.len() - self.config.fft_size) / self.config.hop_size + 1
@@ -618,6 +624,87 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
         }
 
         true
+    }
+
+    /// Process multiple channels independently.
+    /// Returns one Spectrum per channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `channels` - Slice of audio channels, each as a separate Vec
+    ///
+    /// # Panics
+    ///
+    /// Panics if channels is empty or if channels have different lengths.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use stft_rs::prelude::*;
+    ///
+    /// let config = StftConfigF32::default_4096();
+    /// let stft = BatchStftF32::new(config);
+    ///
+    /// let left = vec![0.0; 44100];
+    /// let right = vec![0.0; 44100];
+    /// let channels = vec![left, right];
+    ///
+    /// let spectra = stft.process_multichannel(&channels);
+    /// assert_eq!(spectra.len(), 2); // One spectrum per channel
+    /// ```
+    pub fn process_multichannel(&self, channels: &[Vec<T>]) -> Vec<Spectrum<T>> {
+        assert!(!channels.is_empty(), "channels must not be empty");
+
+        // Validate all channels have same length
+        let expected_len = channels[0].len();
+        for (i, channel) in channels.iter().enumerate() {
+            assert_eq!(
+                channel.len(),
+                expected_len,
+                "Channel {} has length {}, expected {}",
+                i,
+                channel.len(),
+                expected_len
+            );
+        }
+
+        // Process each channel independently
+        channels
+            .iter()
+            .map(|channel| self.process(channel))
+            .collect()
+    }
+
+    /// Process interleaved multi-channel audio.
+    /// Converts interleaved format (e.g., `[L,R,L,R,L,R,...]` for stereo)
+    /// into separate Spectrum for each channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Interleaved audio data
+    /// * `num_channels` - Number of channels
+    ///
+    /// # Panics
+    ///
+    /// Panics if `num_channels` is 0 or if `data.len()` is not divisible by `num_channels`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use stft_rs::prelude::*;
+    ///
+    /// let config = StftConfigF32::default_4096();
+    /// let stft = BatchStftF32::new(config);
+    ///
+    /// // Stereo interleaved: L,R,L,R,L,R,...
+    /// let interleaved = vec![0.0; 88200]; // 2 channels * 44100 samples
+    ///
+    /// let spectra = stft.process_interleaved(&interleaved, 2);
+    /// assert_eq!(spectra.len(), 2); // One spectrum per channel
+    /// ```
+    pub fn process_interleaved(&self, data: &[T], num_channels: usize) -> Vec<Spectrum<T>> {
+        let channels = utils::deinterleave(data, num_channels);
+        self.process_multichannel(&channels)
     }
 }
 
@@ -795,6 +882,79 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
         // Copy to output (resize if needed)
         output.clear();
         output.extend_from_slice(&overlap_buffer[pad_amount..pad_amount + original_time_len]);
+    }
+
+    /// Reconstruct multiple channels from their spectra.
+    /// Returns one Vec per channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `spectra` - Slice of Spectrum, one per channel
+    ///
+    /// # Panics
+    ///
+    /// Panics if spectra is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use stft_rs::prelude::*;
+    ///
+    /// let config = StftConfigF32::default_4096();
+    /// let stft = BatchStftF32::new(config.clone());
+    /// let istft = BatchIstftF32::new(config);
+    ///
+    /// let left = vec![0.0; 44100];
+    /// let right = vec![0.0; 44100];
+    /// let channels = vec![left, right];
+    ///
+    /// let spectra = stft.process_multichannel(&channels);
+    /// let reconstructed = istft.process_multichannel(&spectra);
+    ///
+    /// assert_eq!(reconstructed.len(), 2); // One channel per spectrum
+    /// ```
+    pub fn process_multichannel(&self, spectra: &[Spectrum<T>]) -> Vec<Vec<T>> {
+        assert!(!spectra.is_empty(), "spectra must not be empty");
+
+        // Process each spectrum independently
+        spectra
+            .iter()
+            .map(|spectrum| self.process(spectrum))
+            .collect()
+    }
+
+    /// Reconstruct multiple channels and interleave them into a single buffer.
+    /// Converts separate channels back to interleaved format (e.g., `[L,R,L,R,L,R,...]` for stereo).
+    ///
+    /// # Arguments
+    ///
+    /// * `spectra` - Slice of Spectrum, one per channel
+    ///
+    /// # Panics
+    ///
+    /// Panics if spectra is empty or if channels have different lengths.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use stft_rs::prelude::*;
+    ///
+    /// let config = StftConfigF32::default_4096();
+    /// let stft = BatchStftF32::new(config.clone());
+    /// let istft = BatchIstftF32::new(config);
+    ///
+    /// // Process interleaved stereo
+    /// let interleaved = vec![0.0; 88200]; // 2 channels * 44100 samples
+    /// let spectra = stft.process_interleaved(&interleaved, 2);
+    ///
+    /// // Reconstruct back to interleaved
+    /// let output = istft.process_multichannel_interleaved(&spectra);
+    /// // Output length may differ slightly due to padding/framing
+    /// assert_eq!(output.len() / 2, 44032); // samples per channel after reconstruction
+    /// ```
+    pub fn process_multichannel_interleaved(&self, spectra: &[Spectrum<T>]) -> Vec<T> {
+        let channels = self.process_multichannel(spectra);
+        utils::interleave(&channels)
     }
 }
 
@@ -1173,45 +1333,6 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
         self.output_position = 0;
         self.frames_processed = 0;
     }
-}
-
-/// Apply padding to a signal.
-/// Streaming applications should pad manually to match batch processing quality.
-pub fn apply_padding<T: Float>(signal: &[T], pad_amount: usize, mode: PadMode) -> Vec<T> {
-    let total_len = signal.len() + 2 * pad_amount;
-    let mut padded = vec![T::zero(); total_len];
-
-    padded[pad_amount..pad_amount + signal.len()].copy_from_slice(signal);
-
-    match mode {
-        PadMode::Reflect => {
-            for i in 0..pad_amount {
-                if i + 1 < signal.len() {
-                    padded[pad_amount - 1 - i] = signal[i + 1];
-                }
-            }
-
-            let n = signal.len();
-            for i in 0..pad_amount {
-                if n >= 2 && n - 2 >= i {
-                    padded[pad_amount + n + i] = signal[n - 2 - i];
-                }
-            }
-        }
-        PadMode::Zero => {}
-        PadMode::Edge => {
-            if !signal.is_empty() {
-                for i in 0..pad_amount {
-                    padded[i] = signal[0];
-                }
-                for i in 0..pad_amount {
-                    padded[pad_amount + signal.len() + i] = signal[signal.len() - 1];
-                }
-            }
-        }
-    }
-
-    padded
 }
 
 // Type aliases for common float types

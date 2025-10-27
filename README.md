@@ -18,6 +18,7 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 - **Multiple Window Functions**: Hann, Hamming, Blackman
 - **NOLA/COLA Validation**: Ensures reconstruction quality
 - **Flexible Buffer Management**: Three allocation strategies from simple to zero-allocation
+- **Multi-Channel Audio**: Process stereo, 5.1, 7.1+ with planar or interleaved formats
 - **Generic Float Support**: Works with f32, f64, and other float types
 - **Type Aliases**: Convenient aliases like `StftConfigF32`, `BatchStftF32` for cleaner code
 - **Spectral Operations**: Built-in helpers for magnitude/phase manipulation, filtering, and custom processing
@@ -73,7 +74,7 @@ This exports:
 - Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `Spectrum`, `SpectrumFrame`
 - Type aliases: `StftConfigF32/F64`, `BatchStftF32/F64`, `BatchIstftF32/F64`, `StreamingStftF32/F64`, `StreamingIstftF32/F64`, `SpectrumF32/F64`, `SpectrumFrameF32/F64`
 - Enums: `ReconstructionMode`, `WindowType`, `PadMode`
-- Utilities: `apply_padding`
+- Utilities: `apply_padding`, `interleave`, `deinterleave`, `interleave_into`, `deinterleave_into`
 
 ## Batch vs Streaming
 
@@ -317,6 +318,27 @@ spectrum.zero_bins(high_bin..spectrum.freq_bins);
 let filtered = istft.process(&spectrum);
 ```
 
+## Multi-Channel Audio
+
+Process stereo, 5.1, or any channel count. Supports both planar and interleaved formats:
+
+```rust
+// Planar: separate Vec per channel
+let left = vec![0.0; 44100];
+let right = vec![0.0; 44100];
+let spectra = stft.process_multichannel(&[left, right]);
+
+// Interleaved: L,R,L,R...
+let interleaved = vec![0.0; 88200];
+let spectra = stft.process_interleaved(&interleaved, 2);
+
+// Convert between formats
+let channels = deinterleave(&interleaved, 2);
+let interleaved = interleave(&channels);
+```
+
+See `examples/multichannel_stereo.rs` and `examples/multichannel_midside.rs` for more.
+
 ## Performance Characteristics
 
 - **Batch Mode**: Optimized for throughput, minimal allocations
@@ -343,6 +365,12 @@ cargo run --example streaming_usage
 
 # Spectral manipulation (filtering, time-varying processing)
 cargo run --example spectral_processing
+
+# Multi-channel stereo processing
+cargo run --example multichannel_stereo
+
+# Mid/side stereo width manipulation
+cargo run --example multichannel_midside
 
 # Advanced streaming with buffer reuse patterns
 cargo run --example advanced_streaming
@@ -429,6 +457,6 @@ Contributions welcome! Areas for improvement:
 - [ ] Additional window functions (Kaiser, Gaussian)
 - [ ] SIMD optimizations
 - [ ] GPU acceleration support
-- [ ] Multi-channel support
+- [ ] Streaming multi-channel support
 - [ ] More padding modes
 - [ ] Overlap-save mode
