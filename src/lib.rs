@@ -36,11 +36,13 @@ pub mod prelude {
         apply_padding, deinterleave, deinterleave_into, interleave, interleave_into,
     };
     pub use crate::{
-        BatchIstft, BatchIstftF32, BatchIstftF64, BatchStft, BatchStftF32, BatchStftF64, PadMode,
-        ReconstructionMode, Spectrum, SpectrumF32, SpectrumF64, SpectrumFrame, SpectrumFrameF32,
-        SpectrumFrameF64, StftConfig, StftConfigF32, StftConfigF64, StreamingIstft,
-        StreamingIstftF32, StreamingIstftF64, StreamingStft, StreamingStftF32, StreamingStftF64,
-        WindowType,
+        BatchIstft, BatchIstftF32, BatchIstftF64, BatchStft, BatchStftF32, BatchStftF64,
+        MultiChannelStreamingIstft, MultiChannelStreamingIstftF32, MultiChannelStreamingIstftF64,
+        MultiChannelStreamingStft, MultiChannelStreamingStftF32, MultiChannelStreamingStftF64,
+        PadMode, ReconstructionMode, Spectrum, SpectrumF32, SpectrumF64, SpectrumFrame,
+        SpectrumFrameF32, SpectrumFrameF64, StftConfig, StftConfigF32, StftConfigF64,
+        StreamingIstft, StreamingIstftF32, StreamingIstftF64, StreamingStft, StreamingStftF32,
+        StreamingStftF64, WindowType,
     };
 }
 
@@ -669,10 +671,21 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
         }
 
         // Process each channel independently
-        channels
-            .iter()
-            .map(|channel| self.process(channel))
-            .collect()
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            channels
+                .par_iter()
+                .map(|channel| self.process(channel))
+                .collect()
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            channels
+                .iter()
+                .map(|channel| self.process(channel))
+                .collect()
+        }
     }
 
     /// Process interleaved multi-channel audio.
@@ -917,10 +930,21 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
         assert!(!spectra.is_empty(), "spectra must not be empty");
 
         // Process each spectrum independently
-        spectra
-            .iter()
-            .map(|spectrum| self.process(spectrum))
-            .collect()
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            spectra
+                .par_iter()
+                .map(|spectrum| self.process(spectrum))
+                .collect()
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            spectra
+                .iter()
+                .map(|spectrum| self.process(spectrum))
+                .collect()
+        }
     }
 
     /// Reconstruct multiple channels and interleave them into a single buffer.
@@ -1101,6 +1125,102 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
 
     pub fn buffered_samples(&self) -> usize {
         self.input_buffer.len()
+    }
+}
+
+/// Multi-channel streaming STFT processor with independent state per channel.
+pub struct MultiChannelStreamingStft<T: Float + FftNum> {
+    processors: Vec<StreamingStft<T>>,
+}
+
+impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingStft<T> {
+    /// Create a new multi-channel streaming STFT processor.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - STFT configuration
+    /// * `num_channels` - Number of channels
+    pub fn new(config: StftConfig<T>, num_channels: usize) -> Self {
+        assert!(num_channels > 0, "num_channels must be > 0");
+        let processors = (0..num_channels)
+            .map(|_| StreamingStft::new(config.clone()))
+            .collect();
+        Self { processors }
+    }
+
+    /// Push samples for all channels and get frames for each channel.
+    /// Returns Vec<Vec<SpectrumFrame>>, outer Vec = channels, inner Vec = frames.
+    ///
+    /// # Arguments
+    ///
+    /// * `channels` - Slice of sample slices, one per channel
+    ///
+    /// # Panics
+    ///
+    /// Panics if channels.len() doesn't match num_channels.
+    pub fn push_samples(&mut self, channels: &[&[T]]) -> Vec<Vec<SpectrumFrame<T>>> {
+        assert_eq!(
+            channels.len(),
+            self.processors.len(),
+            "Expected {} channels, got {}",
+            self.processors.len(),
+            channels.len()
+        );
+
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            self.processors
+                .par_iter_mut()
+                .zip(channels.par_iter())
+                .map(|(stft, channel)| stft.push_samples(channel))
+                .collect()
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            self.processors
+                .iter_mut()
+                .zip(channels.iter())
+                .map(|(stft, channel)| stft.push_samples(channel))
+                .collect()
+        }
+    }
+
+    /// Flush all channels and return remaining frames.
+    pub fn flush(&mut self) -> Vec<Vec<SpectrumFrame<T>>> {
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            self.processors
+                .par_iter_mut()
+                .map(|stft| stft.flush())
+                .collect()
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            self.processors
+                .iter_mut()
+                .map(|stft| stft.flush())
+                .collect()
+        }
+    }
+
+    /// Reset all channels.
+    pub fn reset(&mut self) {
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            self.processors.par_iter_mut().for_each(|stft| stft.reset());
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            self.processors.iter_mut().for_each(|stft| stft.reset());
+        }
+    }
+
+    /// Get the number of channels.
+    pub fn num_channels(&self) -> usize {
+        self.processors.len()
     }
 }
 
@@ -1335,6 +1455,104 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
     }
 }
 
+/// Multi-channel streaming iSTFT processor with independent state per channel.
+pub struct MultiChannelStreamingIstft<T: Float + FftNum> {
+    processors: Vec<StreamingIstft<T>>,
+}
+
+impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingIstft<T> {
+    /// Create a new multi-channel streaming iSTFT processor.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - STFT configuration
+    /// * `num_channels` - Number of channels
+    pub fn new(config: StftConfig<T>, num_channels: usize) -> Self {
+        assert!(num_channels > 0, "num_channels must be > 0");
+        let processors = (0..num_channels)
+            .map(|_| StreamingIstft::new(config.clone()))
+            .collect();
+        Self { processors }
+    }
+
+    /// Push frames for all channels and get samples for each channel.
+    /// Returns Vec<Vec<T>>, outer Vec = channels, inner Vec = samples.
+    ///
+    /// # Arguments
+    ///
+    /// * `frames` - Slice of frames, one per channel
+    ///
+    /// # Panics
+    ///
+    /// Panics if frames.len() doesn't match num_channels.
+    pub fn push_frames(&mut self, frames: &[&SpectrumFrame<T>]) -> Vec<Vec<T>> {
+        assert_eq!(
+            frames.len(),
+            self.processors.len(),
+            "Expected {} channels, got {}",
+            self.processors.len(),
+            frames.len()
+        );
+
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            self.processors
+                .par_iter_mut()
+                .zip(frames.par_iter())
+                .map(|(istft, frame)| istft.push_frame(frame))
+                .collect()
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            self.processors
+                .iter_mut()
+                .zip(frames.iter())
+                .map(|(istft, frame)| istft.push_frame(frame))
+                .collect()
+        }
+    }
+
+    /// Flush all channels and return remaining samples.
+    pub fn flush(&mut self) -> Vec<Vec<T>> {
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            self.processors
+                .par_iter_mut()
+                .map(|istft| istft.flush())
+                .collect()
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            self.processors
+                .iter_mut()
+                .map(|istft| istft.flush())
+                .collect()
+        }
+    }
+
+    /// Reset all channels.
+    pub fn reset(&mut self) {
+        #[cfg(feature = "rayon")]
+        {
+            use rayon::prelude::*;
+            self.processors
+                .par_iter_mut()
+                .for_each(|istft| istft.reset());
+        }
+        #[cfg(not(feature = "rayon"))]
+        {
+            self.processors.iter_mut().for_each(|istft| istft.reset());
+        }
+    }
+
+    /// Get the number of channels.
+    pub fn num_channels(&self) -> usize {
+        self.processors.len()
+    }
+}
+
 // Type aliases for common float types
 pub type StftConfigF32 = StftConfig<f32>;
 pub type StftConfigF64 = StftConfig<f64>;
@@ -1356,3 +1574,9 @@ pub type SpectrumF64 = Spectrum<f64>;
 
 pub type SpectrumFrameF32 = SpectrumFrame<f32>;
 pub type SpectrumFrameF64 = SpectrumFrame<f64>;
+
+pub type MultiChannelStreamingStftF32 = MultiChannelStreamingStft<f32>;
+pub type MultiChannelStreamingStftF64 = MultiChannelStreamingStft<f64>;
+
+pub type MultiChannelStreamingIstftF32 = MultiChannelStreamingIstft<f32>;
+pub type MultiChannelStreamingIstftF64 = MultiChannelStreamingIstft<f64>;

@@ -13,10 +13,12 @@ cargo bench batch_benches
 cargo bench streaming_benches
 cargo bench spectral_benches
 cargo bench misc_benches
+cargo bench multichannel_benches
 
 # Run specific benchmark
 cargo bench batch_stft_only
 cargo bench allocation_strategies
+cargo bench multichannel
 
 # Save baseline for comparison
 cargo bench --bench stft-bench -- --save-baseline main
@@ -62,6 +64,12 @@ cargo bench --bench stft-bench -- --baseline main
 
 - **`padding_modes`** - Reflect, Zero, Edge padding
 - **`float_types`** - f32 vs f64 performance comparison
+
+### Multi-Channel (`multichannel_benches`)
+
+- **`multichannel`** - Multi-channel roundtrip (2, 4, 6, 8 channels)
+  - Parallelized with rayon (enabled by default)
+  - Benchmark with `--no-default-features` to test sequential processing
 
 ## Interpreting Results
 

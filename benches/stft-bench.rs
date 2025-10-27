@@ -561,9 +561,52 @@ criterion_group! {
         bench_float_types,
 }
 
+// ============================================================================
+// Multi-Channel Benchmarks
+// ============================================================================
+
+fn bench_multichannel(c: &mut Criterion) {
+    let mut group = c.benchmark_group("multichannel");
+
+    let sample_rate = 44100;
+    let duration_secs = 5.0;
+    let num_samples = (sample_rate as f32 * duration_secs) as usize;
+
+    for num_channels in [2, 4, 6, 8] {
+        let channels: Vec<Vec<f32>> = (0..num_channels)
+            .map(|_| generate_signal(num_samples, sample_rate))
+            .collect();
+
+        group.throughput(Throughput::Elements((num_samples * num_channels) as u64));
+        group.bench_with_input(
+            BenchmarkId::from_parameter(format!("{} channels", num_channels)),
+            &channels,
+            |b, channels| {
+                let config = StftConfigF32::default_4096();
+                let stft = BatchStftF32::new(config.clone());
+                let istft = BatchIstftF32::new(config);
+
+                b.iter(|| {
+                    let spectra = stft.process_multichannel(black_box(channels));
+                    black_box(istft.process_multichannel(&spectra))
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+criterion_group! {
+    name = multichannel_benches;
+    config = criterion_config();
+    targets = bench_multichannel,
+}
+
 criterion_main!(
     batch_benches,
     streaming_benches,
     spectral_benches,
     misc_benches,
+    multichannel_benches,
 );
