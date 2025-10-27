@@ -1,12 +1,12 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use std::{hint::black_box, time::Duration};
+use std::hint::black_box;
 
 use stft_rs::prelude::*;
 
 pub fn batched_stft_bench(c: &mut Criterion) {
     let config = StftConfig::default_4096();
     let stft = BatchStft::new(config.clone());
-    let istft = BatchIstft::new(config);
+    let _istft = BatchIstft::new(config);
 
     let sample_rate = 44100;
     let duration_secs = 10.0;

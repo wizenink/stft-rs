@@ -30,8 +30,11 @@ use std::sync::Arc;
 
 pub mod prelude {
     pub use crate::{
-        BatchIstft, BatchStft, PadMode, ReconstructionMode, Spectrum, SpectrumFrame, StftConfig,
-        StreamingIstft, StreamingStft, WindowType, apply_padding,
+        BatchIstft, BatchIstftF32, BatchIstftF64, BatchStft, BatchStftF32, BatchStftF64, PadMode,
+        ReconstructionMode, Spectrum, SpectrumF32, SpectrumF64, SpectrumFrame, SpectrumFrameF32,
+        SpectrumFrameF64, StftConfig, StftConfigF32, StftConfigF64, StreamingIstft,
+        StreamingIstftF32, StreamingIstftF64, StreamingStft, StreamingStftF32, StreamingStftF64,
+        WindowType, apply_padding,
     };
 }
 
@@ -294,6 +297,28 @@ impl<T: Float> SpectrumFrame<T> {
         let freq_bins = data.len();
         Self { freq_bins, data }
     }
+
+    /// Prepare frame for reuse by clearing data (keeps capacity)
+    pub fn clear(&mut self) {
+        for val in &mut self.data {
+            *val = Complex::new(T::zero(), T::zero());
+        }
+    }
+
+    /// Resize frame if needed to match freq_bins
+    pub fn resize_if_needed(&mut self, freq_bins: usize) {
+        if self.freq_bins != freq_bins {
+            self.freq_bins = freq_bins;
+            self.data
+                .resize(freq_bins, Complex::new(T::zero(), T::zero()));
+        }
+    }
+
+    /// Write data from a slice into this frame
+    pub fn write_from_slice(&mut self, data: &[Complex<T>]) {
+        self.resize_if_needed(data.len());
+        self.data.copy_from_slice(data);
+    }
 }
 
 pub struct Spectrum<T: Float> {
@@ -397,6 +422,61 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
 
         result
     }
+
+    /// Process signal and write into a pre-allocated Spectrum.
+    /// The spectrum must have the correct dimensions (num_frames x freq_bins).
+    /// Returns true if successful, false if dimensions don't match.
+    pub fn process_into(&self, signal: &[T], spectrum: &mut Spectrum<T>) -> bool {
+        self.process_padded_into(signal, PadMode::Reflect, spectrum)
+    }
+
+    /// Process signal with padding and write into a pre-allocated Spectrum.
+    pub fn process_padded_into(
+        &self,
+        signal: &[T],
+        pad_mode: PadMode,
+        spectrum: &mut Spectrum<T>,
+    ) -> bool {
+        let pad_amount = self.config.fft_size / 2;
+        let padded = apply_padding(signal, pad_amount, pad_mode);
+
+        let num_frames = if padded.len() >= self.config.fft_size {
+            (padded.len() - self.config.fft_size) / self.config.hop_size + 1
+        } else {
+            0
+        };
+
+        let freq_bins = self.config.freq_bins();
+
+        // Check dimensions
+        if spectrum.num_frames != num_frames || spectrum.freq_bins != freq_bins {
+            return false;
+        }
+
+        let mut fft_buffer = vec![Complex::new(T::zero(), T::zero()); self.config.fft_size];
+
+        for (frame_idx, frame_start) in (0..padded.len() - self.config.fft_size + 1)
+            .step_by(self.config.hop_size)
+            .enumerate()
+        {
+            // Apply window and prepare FFT input
+            for i in 0..self.config.fft_size {
+                fft_buffer[i] = Complex::new(padded[frame_start + i] * self.window[i], T::zero());
+            }
+
+            // Compute FFT
+            self.fft.process(&mut fft_buffer);
+
+            // Store positive frequencies in flat layout
+            for bin in 0..freq_bins {
+                let idx = frame_idx * freq_bins + bin;
+                spectrum.data[idx] = fft_buffer[bin].re;
+                spectrum.data[num_frames * freq_bins + idx] = fft_buffer[bin].im;
+            }
+        }
+
+        true
+    }
 }
 
 pub struct BatchIstft<T: Float + FftNum> {
@@ -495,6 +575,85 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
         // Remove padding
         overlap_buffer[pad_amount..pad_amount + original_time_len].to_vec()
     }
+
+    /// Process spectrum and write into a pre-allocated output buffer.
+    /// The output buffer will be resized if needed.
+    pub fn process_into(&self, spectrum: &Spectrum<T>, output: &mut Vec<T>) {
+        assert_eq!(
+            spectrum.freq_bins,
+            self.config.freq_bins(),
+            "Frequency bins mismatch"
+        );
+
+        let num_frames = spectrum.num_frames;
+        let original_time_len = (num_frames - 1) * self.config.hop_size;
+        let pad_amount = self.config.fft_size / 2;
+        let padded_len = original_time_len + 2 * pad_amount;
+
+        let mut overlap_buffer = vec![T::zero(); padded_len];
+        let mut window_energy = vec![T::zero(); padded_len];
+        let mut ifft_buffer = vec![Complex::new(T::zero(), T::zero()); self.config.fft_size];
+
+        // Precompute window energy normalization
+        for frame_idx in 0..num_frames {
+            let pos = frame_idx * self.config.hop_size;
+            for i in 0..self.config.fft_size {
+                match self.config.reconstruction_mode {
+                    ReconstructionMode::Ola => {
+                        window_energy[pos + i] = window_energy[pos + i] + self.window[i];
+                    }
+                    ReconstructionMode::Wola => {
+                        window_energy[pos + i] =
+                            window_energy[pos + i] + self.window[i] * self.window[i];
+                    }
+                }
+            }
+        }
+
+        // Process each frame
+        for frame_idx in 0..num_frames {
+            // Build full spectrum with conjugate symmetry
+            for bin in 0..spectrum.freq_bins {
+                ifft_buffer[bin] = spectrum.get_complex(frame_idx, bin);
+            }
+
+            // Conjugate symmetry for negative frequencies (skip DC and Nyquist)
+            for bin in 1..(spectrum.freq_bins - 1) {
+                ifft_buffer[self.config.fft_size - bin] = ifft_buffer[bin].conj();
+            }
+
+            // Compute IFFT
+            self.ifft.process(&mut ifft_buffer);
+
+            // Overlap-add
+            let pos = frame_idx * self.config.hop_size;
+            for i in 0..self.config.fft_size {
+                let fft_size_t = T::from(self.config.fft_size).unwrap();
+                let sample = ifft_buffer[i].re / fft_size_t;
+
+                match self.config.reconstruction_mode {
+                    ReconstructionMode::Ola => {
+                        overlap_buffer[pos + i] = overlap_buffer[pos + i] + sample;
+                    }
+                    ReconstructionMode::Wola => {
+                        overlap_buffer[pos + i] = overlap_buffer[pos + i] + sample * self.window[i];
+                    }
+                }
+            }
+        }
+
+        // Normalize by window energy
+        let threshold = T::from(1e-8).unwrap();
+        for i in 0..padded_len {
+            if window_energy[i] > threshold {
+                overlap_buffer[i] = overlap_buffer[i] / window_energy[i];
+            }
+        }
+
+        // Copy to output (resize if needed)
+        output.clear();
+        output.extend_from_slice(&overlap_buffer[pad_amount..pad_amount + original_time_len]);
+    }
 }
 
 pub struct StreamingStft<T: Float + FftNum> {
@@ -503,6 +662,7 @@ pub struct StreamingStft<T: Float + FftNum> {
     fft: Arc<dyn Fft<T>>,
     input_buffer: VecDeque<T>,
     frame_index: usize,
+    fft_buffer: Vec<Complex<T>>,
 }
 
 impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
@@ -510,6 +670,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
         let window = config.generate_window();
         let mut planner = FftPlanner::new();
         let fft = planner.plan_fft_forward(config.fft_size);
+        let fft_buffer = vec![Complex::new(T::zero(), T::zero()); config.fft_size];
 
         Self {
             config,
@@ -517,6 +678,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
             fft,
             input_buffer: VecDeque::new(),
             frame_index: 0,
+            fft_buffer,
         }
     }
 
@@ -524,18 +686,17 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
         self.input_buffer.extend(samples.iter().copied());
 
         let mut frames = Vec::new();
-        let mut fft_buffer = vec![Complex::new(T::zero(), T::zero()); self.config.fft_size];
 
         while self.input_buffer.len() >= self.config.fft_size {
             // Process one frame
             for i in 0..self.config.fft_size {
-                fft_buffer[i] = Complex::new(self.input_buffer[i] * self.window[i], T::zero());
+                self.fft_buffer[i] = Complex::new(self.input_buffer[i] * self.window[i], T::zero());
             }
 
-            self.fft.process(&mut fft_buffer);
+            self.fft.process(&mut self.fft_buffer);
 
             let freq_bins = self.config.freq_bins();
-            let data: Vec<Complex<T>> = fft_buffer[..freq_bins].to_vec();
+            let data: Vec<Complex<T>> = self.fft_buffer[..freq_bins].to_vec();
             frames.push(SpectrumFrame::from_data(data));
 
             // Advance by hop size
@@ -544,6 +705,85 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
         }
 
         frames
+    }
+
+    /// Push samples and write frames into a pre-allocated buffer.
+    /// Returns the number of frames written.
+    pub fn push_samples_into(
+        &mut self,
+        samples: &[T],
+        output: &mut Vec<SpectrumFrame<T>>,
+    ) -> usize {
+        self.input_buffer.extend(samples.iter().copied());
+
+        let initial_len = output.len();
+
+        while self.input_buffer.len() >= self.config.fft_size {
+            // Process one frame
+            for i in 0..self.config.fft_size {
+                self.fft_buffer[i] = Complex::new(self.input_buffer[i] * self.window[i], T::zero());
+            }
+
+            self.fft.process(&mut self.fft_buffer);
+
+            let freq_bins = self.config.freq_bins();
+            let data: Vec<Complex<T>> = self.fft_buffer[..freq_bins].to_vec();
+            output.push(SpectrumFrame::from_data(data));
+
+            // Advance by hop size
+            self.input_buffer.drain(..self.config.hop_size);
+            self.frame_index += 1;
+        }
+
+        output.len() - initial_len
+    }
+
+    /// Push samples and write directly into pre-existing SpectrumFrame buffers.
+    /// This is a zero-allocation method - frames must be pre-allocated with correct size.
+    /// Returns the number of frames written.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut frame_pool = vec![SpectrumFrame::new(config.freq_bins()); 16];
+    /// let mut frame_index = 0;
+    ///
+    /// let frames_written = stft.push_samples_write(chunk, &mut frame_pool, &mut frame_index);
+    /// // Process frames 0..frames_written
+    /// ```
+    pub fn push_samples_write(
+        &mut self,
+        samples: &[T],
+        frame_pool: &mut [SpectrumFrame<T>],
+        pool_index: &mut usize,
+    ) -> usize {
+        self.input_buffer.extend(samples.iter().copied());
+
+        let initial_index = *pool_index;
+        let freq_bins = self.config.freq_bins();
+
+        while self.input_buffer.len() >= self.config.fft_size && *pool_index < frame_pool.len() {
+            // Process one frame
+            for i in 0..self.config.fft_size {
+                self.fft_buffer[i] = Complex::new(self.input_buffer[i] * self.window[i], T::zero());
+            }
+
+            self.fft.process(&mut self.fft_buffer);
+
+            // Write directly into the pre-allocated frame
+            let frame = &mut frame_pool[*pool_index];
+            debug_assert_eq!(
+                frame.freq_bins, freq_bins,
+                "Frame pool frames must match freq_bins"
+            );
+            frame.data[..freq_bins].copy_from_slice(&self.fft_buffer[..freq_bins]);
+
+            // Advance by hop size
+            self.input_buffer.drain(..self.config.hop_size);
+            self.frame_index += 1;
+            *pool_index += 1;
+        }
+
+        *pool_index - initial_index
     }
 
     pub fn flush(&mut self) -> Vec<SpectrumFrame<T>> {
@@ -570,6 +810,7 @@ pub struct StreamingIstft<T: Float + FftNum> {
     window_energy: Vec<T>,
     output_position: usize,
     frames_processed: usize,
+    ifft_buffer: Vec<Complex<T>>,
 }
 
 impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
@@ -581,6 +822,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
         // Buffer needs to hold enough samples for full overlap
         // For proper reconstruction, need at least fft_size samples
         let buffer_size = config.fft_size * 2;
+        let ifft_buffer = vec![Complex::new(T::zero(), T::zero()); config.fft_size];
 
         Self {
             config,
@@ -590,6 +832,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
             window_energy: vec![T::zero(); buffer_size],
             output_position: 0,
             frames_processed: 0,
+            ifft_buffer,
         }
     }
 
@@ -600,26 +843,24 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
             "Frequency bins mismatch"
         );
 
-        let mut ifft_buffer = vec![Complex::new(T::zero(), T::zero()); self.config.fft_size];
-
         // Build full spectrum with conjugate symmetry
         for bin in 0..frame.freq_bins {
-            ifft_buffer[bin] = frame.data[bin];
+            self.ifft_buffer[bin] = frame.data[bin];
         }
 
         // Conjugate symmetry for negative frequencies (skip DC and Nyquist)
         for bin in 1..(frame.freq_bins - 1) {
-            ifft_buffer[self.config.fft_size - bin] = ifft_buffer[bin].conj();
+            self.ifft_buffer[self.config.fft_size - bin] = self.ifft_buffer[bin].conj();
         }
 
         // Compute IFFT
-        self.ifft.process(&mut ifft_buffer);
+        self.ifft.process(&mut self.ifft_buffer);
 
         // Overlap-add into buffer at the current write position
         let write_pos = self.frames_processed * self.config.hop_size;
         for i in 0..self.config.fft_size {
             let fft_size_t = T::from(self.config.fft_size).unwrap();
-            let sample = ifft_buffer[i].re / fft_size_t;
+            let sample = self.ifft_buffer[i].re / fft_size_t;
             let buf_idx = write_pos + i;
 
             // Extend buffers if needed
@@ -672,6 +913,87 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
         }
 
         output
+    }
+
+    /// Push a frame and write output samples into a pre-allocated buffer.
+    /// Returns the number of samples written.
+    pub fn push_frame_into(&mut self, frame: &SpectrumFrame<T>, output: &mut Vec<T>) -> usize {
+        assert_eq!(
+            frame.freq_bins,
+            self.config.freq_bins(),
+            "Frequency bins mismatch"
+        );
+
+        // Build full spectrum with conjugate symmetry
+        for bin in 0..frame.freq_bins {
+            self.ifft_buffer[bin] = frame.data[bin];
+        }
+
+        // Conjugate symmetry for negative frequencies (skip DC and Nyquist)
+        for bin in 1..(frame.freq_bins - 1) {
+            self.ifft_buffer[self.config.fft_size - bin] = self.ifft_buffer[bin].conj();
+        }
+
+        // Compute IFFT
+        self.ifft.process(&mut self.ifft_buffer);
+
+        // Overlap-add into buffer at the current write position
+        let write_pos = self.frames_processed * self.config.hop_size;
+        for i in 0..self.config.fft_size {
+            let fft_size_t = T::from(self.config.fft_size).unwrap();
+            let sample = self.ifft_buffer[i].re / fft_size_t;
+            let buf_idx = write_pos + i;
+
+            // Extend buffers if needed
+            if buf_idx >= self.overlap_buffer.len() {
+                self.overlap_buffer.resize(buf_idx + 1, T::zero());
+                self.window_energy.resize(buf_idx + 1, T::zero());
+            }
+
+            match self.config.reconstruction_mode {
+                ReconstructionMode::Ola => {
+                    self.overlap_buffer[buf_idx] = self.overlap_buffer[buf_idx] + sample;
+                    self.window_energy[buf_idx] = self.window_energy[buf_idx] + self.window[i];
+                }
+                ReconstructionMode::Wola => {
+                    self.overlap_buffer[buf_idx] =
+                        self.overlap_buffer[buf_idx] + sample * self.window[i];
+                    self.window_energy[buf_idx] =
+                        self.window_energy[buf_idx] + self.window[i] * self.window[i];
+                }
+            }
+        }
+
+        self.frames_processed += 1;
+
+        // Calculate how many samples are "ready" (have full window energy)
+        // Samples are ready when no future frames will contribute to them
+        let ready_until = if self.frames_processed == 1 {
+            0 // First frame: no output yet, need overlap
+        } else {
+            // Samples before the current frame's start position are complete
+            (self.frames_processed - 1) * self.config.hop_size
+        };
+
+        // Extract ready samples
+        let output_start = self.output_position;
+        let output_end = ready_until;
+        let initial_len = output.len();
+
+        let threshold = T::from(1e-8).unwrap();
+        if output_end > output_start {
+            for i in output_start..output_end {
+                let normalized = if self.window_energy[i] > threshold {
+                    self.overlap_buffer[i] / self.window_energy[i]
+                } else {
+                    T::zero()
+                };
+                output.push(normalized);
+            }
+            self.output_position = output_end;
+        }
+
+        output.len() - initial_len
     }
 
     pub fn flush(&mut self) -> Vec<T> {
@@ -750,353 +1072,24 @@ pub fn apply_padding<T: Float>(signal: &[T], pad_amount: usize, mode: PadMode) -
     padded
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// Type aliases for common float types
+pub type StftConfigF32 = StftConfig<f32>;
+pub type StftConfigF64 = StftConfig<f64>;
 
-    fn calculate_snr(original: &[f32], reconstructed: &[f32]) -> f32 {
-        assert_eq!(original.len(), reconstructed.len());
+pub type BatchStftF32 = BatchStft<f32>;
+pub type BatchStftF64 = BatchStft<f64>;
 
-        let signal_power: f32 = original.iter().map(|x| x.powi(2)).sum();
-        let noise_power: f32 = original
-            .iter()
-            .zip(reconstructed.iter())
-            .map(|(o, r)| (o - r).powi(2))
-            .sum();
+pub type BatchIstftF32 = BatchIstft<f32>;
+pub type BatchIstftF64 = BatchIstft<f64>;
 
-        if noise_power == 0.0 {
-            f32::INFINITY
-        } else {
-            10.0 * (signal_power / noise_power).log10()
-        }
-    }
+pub type StreamingStftF32 = StreamingStft<f32>;
+pub type StreamingStftF64 = StreamingStft<f64>;
 
-    fn max_abs_error(original: &[f32], reconstructed: &[f32]) -> f32 {
-        original
-            .iter()
-            .zip(reconstructed.iter())
-            .map(|(o, r)| (o - r).abs())
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap_or(0.0)
-    }
+pub type StreamingIstftF32 = StreamingIstft<f32>;
+pub type StreamingIstftF64 = StreamingIstft<f64>;
 
-    #[test]
-    fn test_config_validation_ola() {
-        let config = StftConfig::<f32>::new(4096, 1024, WindowType::Hann, ReconstructionMode::Ola);
-        assert!(config.is_ok());
-    }
+pub type SpectrumF32 = Spectrum<f32>;
+pub type SpectrumF64 = Spectrum<f64>;
 
-    #[test]
-    fn test_config_validation_wola() {
-        let config = StftConfig::<f32>::new(4096, 1024, WindowType::Hann, ReconstructionMode::Wola);
-        assert!(config.is_ok());
-    }
-
-    #[test]
-    fn test_config_invalid_ola() {
-        let config = StftConfig::<f32>::new(4096, 3000, WindowType::Hann, ReconstructionMode::Ola);
-        assert!(config.is_err())
-    }
-
-    #[test]
-    fn test_config_invalid_fft_size() {
-        let config = StftConfig::<f32>::new(4095, 1024, WindowType::Hann, ReconstructionMode::Ola);
-        assert!(matches!(config, Err(ConfigError::InvalidFftSize)));
-    }
-
-    #[test]
-    fn test_config_invalid_hop_size() {
-        let config = StftConfig::<f32>::new(4096, 0, WindowType::Hann, ReconstructionMode::Ola);
-        assert!(matches!(config, Err(ConfigError::InvalidHopSize)));
-
-        let config = StftConfig::<f32>::new(4096, 5000, WindowType::Hann, ReconstructionMode::Ola);
-        assert!(matches!(config, Err(ConfigError::InvalidHopSize)));
-    }
-
-    #[test]
-    fn test_batch_ola_roundtrip() {
-        let config = StftConfig::<f32>::default_4096();
-        let stft = BatchStft::new(config.clone());
-        let istft = BatchIstft::new(config.clone());
-
-        // Generate test signal (127 hops = 127 * 1024 samples)
-        let signal_len = 127 * 1024;
-        let original: Vec<f32> = (0..signal_len)
-            .map(|i| (i as f32 * 0.01).sin() * 0.1)
-            .collect();
-
-        let spectrum = stft.process(&original);
-        let reconstructed = istft.process(&spectrum);
-
-        assert_eq!(original.len(), reconstructed.len());
-
-        let snr = calculate_snr(&original, &reconstructed);
-        println!("Batch OLA SNR: {:.2} dB", snr);
-        assert!(snr > 100.0, "SNR too low: {:.2} dB", snr);
-    }
-
-    #[test]
-    fn test_batch_wola_roundtrip() {
-        let config = StftConfig::<f32>::new(4096, 1024, WindowType::Hann, ReconstructionMode::Wola)
-            .expect("Config should be valid");
-        let stft = BatchStft::new(config.clone());
-        let istft = BatchIstft::new(config.clone());
-
-        let signal_len = 127 * 1024;
-        let original: Vec<f32> = (0..signal_len)
-            .map(|i| (i as f32 * 0.01).sin() * 0.1)
-            .collect();
-
-        let spectrum = stft.process(&original);
-        let reconstructed = istft.process(&spectrum);
-
-        assert_eq!(original.len(), reconstructed.len());
-
-        let snr = calculate_snr(&original, &reconstructed);
-        println!("Batch WOLA SNR: {:.2} dB", snr);
-        assert!(snr > 100.0, "SNR too low: {:.2} dB", snr);
-    }
-
-    #[test]
-    fn test_batch_constant_signal() {
-        let config = StftConfig::<f32>::default_4096();
-        let stft = BatchStft::new(config.clone());
-        let istft = BatchIstft::new(config.clone());
-
-        let signal_len = 127 * 1024;
-        let original = vec![1.0; signal_len];
-
-        let spectrum = stft.process(&original);
-        let reconstructed = istft.process(&spectrum);
-
-        let max_error = max_abs_error(&original, &reconstructed);
-        println!("Constant signal max error: {:.6}", max_error);
-        assert!(max_error < 0.001, "Max error too large: {:.6}", max_error);
-    }
-
-    #[test]
-    fn test_streaming_ola_roundtrip() {
-        let config = StftConfig::<f32>::default_4096();
-        let mut stft = StreamingStft::new(config.clone());
-        let mut istft = StreamingIstft::new(config.clone());
-
-        // Generate test signal
-        let signal_len = 127 * 1024;
-        let original: Vec<f32> = (0..signal_len)
-            .map(|i| (i as f32 * 0.01).sin() * 0.1)
-            .collect();
-
-        // For streaming, pad the signal to match batch behavior
-        let pad_amount = config.fft_size / 2;
-        let padded = apply_padding(&original, pad_amount, PadMode::Reflect);
-
-        // Process in chunks
-        let chunk_size = 2048;
-        let mut reconstructed = Vec::new();
-
-        for chunk in padded.chunks(chunk_size) {
-            let frames = stft.push_samples(chunk);
-            for frame in frames {
-                let samples = istft.push_frame(&frame);
-                reconstructed.extend(samples);
-            }
-        }
-
-        let remaining_frames = stft.flush();
-        for frame in remaining_frames {
-            let samples = istft.push_frame(&frame);
-            reconstructed.extend(samples);
-        }
-        reconstructed.extend(istft.flush());
-
-        // Remove padding from reconstruction
-        let start = pad_amount.min(reconstructed.len());
-        let end = (start + signal_len).min(reconstructed.len());
-        let reconstructed_unpadded = &reconstructed[start..end];
-
-        let compare_len = original.len().min(reconstructed_unpadded.len());
-        let snr = calculate_snr(
-            &original[..compare_len],
-            &reconstructed_unpadded[..compare_len],
-        );
-        println!("Streaming OLA SNR: {:.2} dB", snr);
-        assert!(snr > 100.0, "SNR too low: {:.2} dB", snr);
-    }
-
-    #[test]
-    fn test_streaming_wola_roundtrip() {
-        let config = StftConfig::<f32>::new(4096, 1024, WindowType::Hann, ReconstructionMode::Wola)
-            .expect("Config should be valid");
-        let mut stft = StreamingStft::new(config.clone());
-        let mut istft = StreamingIstft::new(config.clone());
-
-        let signal_len = 127 * 1024;
-        let original: Vec<f32> = (0..signal_len)
-            .map(|i| (i as f32 * 0.01).sin() * 0.1)
-            .collect();
-
-        // Pad for streaming
-        let pad_amount = config.fft_size / 2;
-        let padded = apply_padding(&original, pad_amount, PadMode::Reflect);
-
-        let chunk_size = 2048;
-        let mut reconstructed = Vec::new();
-
-        for chunk in padded.chunks(chunk_size) {
-            let frames = stft.push_samples(chunk);
-            for frame in frames {
-                let samples = istft.push_frame(&frame);
-                reconstructed.extend(samples);
-            }
-        }
-
-        let remaining_frames = stft.flush();
-        for frame in remaining_frames {
-            let samples = istft.push_frame(&frame);
-            reconstructed.extend(samples);
-        }
-        reconstructed.extend(istft.flush());
-
-        // Remove padding
-        let start = pad_amount.min(reconstructed.len());
-        let end = (start + signal_len).min(reconstructed.len());
-        let reconstructed_unpadded = &reconstructed[start..end];
-
-        let compare_len = original.len().min(reconstructed_unpadded.len());
-        let snr = calculate_snr(
-            &original[..compare_len],
-            &reconstructed_unpadded[..compare_len],
-        );
-        println!("Streaming WOLA SNR: {:.2} dB", snr);
-        assert!(snr > 100.0, "SNR too low: {:.2} dB", snr);
-    }
-
-    #[test]
-    fn test_batch_vs_streaming_consistency() {
-        let config = StftConfig::<f32>::default_4096();
-
-        // Batch processing (pads internally)
-        let batch_stft = BatchStft::new(config.clone());
-        let signal_len = 50 * 1024;
-        let original: Vec<f32> = (0..signal_len)
-            .map(|i| (i as f32 * 0.01).sin() * 0.1)
-            .collect();
-
-        let batch_result = batch_stft.process(&original);
-
-        // Streaming processing - need to pad manually to match batch
-        let pad_amount = config.fft_size / 2;
-        let padded = apply_padding(&original, pad_amount, PadMode::Reflect);
-
-        let mut streaming_stft = StreamingStft::new(config.clone());
-        let streaming_frames = streaming_stft.push_samples(&padded);
-
-        // Compare number of frames
-        assert_eq!(batch_result.num_frames, streaming_frames.len());
-
-        // Compare spectral content
-        for (frame_idx, streaming_frame) in streaming_frames.iter().enumerate() {
-            for bin in 0..batch_result.freq_bins {
-                let batch_complex = batch_result.get_complex(frame_idx, bin);
-                let streaming_complex = streaming_frame.data[bin];
-
-                let diff_re = (batch_complex.re - streaming_complex.re).abs();
-                let diff_im = (batch_complex.im - streaming_complex.im).abs();
-
-                assert!(
-                    diff_re < 1e-4,
-                    "Real part mismatch at frame {}, bin {}: {} vs {}",
-                    frame_idx,
-                    bin,
-                    batch_complex.re,
-                    streaming_complex.re
-                );
-                assert!(
-                    diff_im < 1e-4,
-                    "Imag part mismatch at frame {}, bin {}: {} vs {}",
-                    frame_idx,
-                    bin,
-                    batch_complex.im,
-                    streaming_complex.im
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_stft_result_accessors() {
-        let config = StftConfig::<f32>::default_4096();
-        let stft = BatchStft::new(config.clone());
-
-        let signal_len = 10 * 1024;
-        let original: Vec<f32> = vec![1.0; signal_len];
-        let result = stft.process(&original);
-
-        // Test accessors
-        for frame in 0..result.num_frames {
-            for bin in 0..result.freq_bins {
-                let complex = result.get_complex(frame, bin);
-                assert_eq!(complex.re, result.real(frame, bin));
-                assert_eq!(complex.im, result.imag(frame, bin));
-            }
-        }
-
-        // Test frame iterator
-        let frames: Vec<_> = result.frames().collect();
-        assert_eq!(frames.len(), result.num_frames);
-        assert_eq!(frames[0].freq_bins, result.freq_bins);
-    }
-
-    #[test]
-    fn test_different_windows() {
-        for window_type in [WindowType::Hann, WindowType::Hamming, WindowType::Blackman] {
-            let config = StftConfig::<f32>::new(4096, 1024, window_type, ReconstructionMode::Ola)
-                .expect("Config should be valid");
-            let stft = BatchStft::new(config.clone());
-            let istft = BatchIstft::new(config.clone());
-
-            let signal_len = 50 * 1024;
-            let original: Vec<f32> = (0..signal_len)
-                .map(|i| (i as f32 * 0.01).sin() * 0.1)
-                .collect();
-
-            let spectrum = stft.process(&original);
-            let reconstructed = istft.process(&spectrum);
-
-            let snr = calculate_snr(&original, &reconstructed);
-            println!("{:?} window SNR: {:.2} dB", window_type, snr);
-            assert!(snr > 100.0, "{:?} SNR too low: {:.2} dB", window_type, snr);
-        }
-    }
-
-    #[test]
-    fn test_streaming_reset() {
-        let config = StftConfig::<f32>::default_4096();
-        let mut stft = StreamingStft::new(config.clone());
-
-        let samples = vec![1.0; 5000];
-        stft.push_samples(&samples);
-        assert!(stft.buffered_samples() > 0);
-
-        stft.reset();
-        assert_eq!(stft.buffered_samples(), 0);
-    }
-
-    #[test]
-    fn test_padding_modes() {
-        let config = StftConfig::<f32>::default_4096();
-        let stft = BatchStft::new(config.clone());
-
-        let signal_len = 20 * 1024;
-        let original: Vec<f32> = (0..signal_len)
-            .map(|i| (i as f32 * 0.01).sin() * 0.1)
-            .collect();
-
-        // All padding modes should work
-        for pad_mode in [PadMode::Reflect, PadMode::Zero, PadMode::Edge] {
-            let result = stft.process_padded(&original, pad_mode);
-            assert!(result.num_frames > 0);
-            assert_eq!(result.freq_bins, config.freq_bins());
-        }
-    }
-}
+pub type SpectrumFrameF32 = SpectrumFrame<f32>;
+pub type SpectrumFrameF64 = SpectrumFrame<f64>;

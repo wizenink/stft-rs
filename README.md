@@ -1,6 +1,11 @@
+![crates.io](https://img.shields.io/crates/v/stft-rs.svg)
 # stft-rs
 
 High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with raw slices (`&[f32]`).
+
+
+> [!CAUTION]
+> This crate is a WIP, expect API changes and breakage until first stable version 
 
 ## Features
 
@@ -12,6 +17,9 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
   - **WOLA** (Weighted Overlap-Add): Standard implementation
 - **Multiple Window Functions**: Hann, Hamming, Blackman
 - **NOLA/COLA Validation**: Ensures reconstruction quality
+- **Flexible Buffer Management**: Three allocation strategies from simple to zero-allocation
+- **Generic Float Support**: Works with f32, f64, and other float types
+- **Type Aliases**: Convenient aliases like `StftConfigF32`, `BatchStftF32` for cleaner code
 - **No External Tensor Libraries**: Works directly with slices
 
 ## Quick Start
@@ -19,7 +27,7 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 ```rust
 use stft_rs::prelude::*;
 
-let config = StftConfig::default_4096();
+let config = StftConfig::<f32>::default_4096();
 
 let stft = BatchStft::new(config.clone());
 let istft = BatchIstft::new(config);
@@ -32,6 +40,26 @@ let spectrum = stft.process(&signal);
 let reconstructed = istft.process(&spectrum);
 ```
 
+### Type Aliases for Convenience
+
+For cleaner code, use type aliases instead of specifying generic types:
+
+```rust
+use stft_rs::prelude::*;
+
+// Instead of StftConfig::<f32>, use:
+let config = StftConfigF32::default_4096();
+let stft = BatchStftF32::new(config.clone());
+let istft = BatchIstftF32::new(config);
+
+// Available aliases:
+// - StftConfigF32, StftConfigF64
+// - BatchStftF32, BatchIstftF32, BatchStftF64, BatchIstftF64
+// - StreamingStftF32, StreamingIstftF32, StreamingStftF64, StreamingIstftF64
+// - SpectrumF32, SpectrumF64
+// - SpectrumFrameF32, SpectrumFrameF64
+```
+
 ## Prelude
 
 For convenience, import commonly used types with:
@@ -41,12 +69,10 @@ use stft_rs::prelude::*;
 ```
 
 This exports:
-- `BatchStft`, `BatchIstft`
-- `StreamingStft`, `StreamingIstft`
-- `StftConfig`
-- `Spectrum`, `SpectrumFrame`
-- `ReconstructionMode`, `WindowType`, `PadMode`
-- `apply_padding`
+- Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `Spectrum`, `SpectrumFrame`
+- Type aliases: `StftConfigF32/F64`, `BatchStftF32/F64`, `BatchIstftF32/F64`, `StreamingStftF32/F64`, `StreamingIstftF32/F64`, `SpectrumF32/F64`, `SpectrumFrameF32/F64`
+- Enums: `ReconstructionMode`, `WindowType`, `PadMode`
+- Utilities: `apply_padding`
 
 ## Batch vs Streaming
 
@@ -103,6 +129,69 @@ output.extend(istft.flush());
 - Without padding, edge effects reduce quality to ~40-60 dB SNR
 - Use `apply_padding()` helper function or implement custom padding
 - For truly real-time applications without pre-roll, accept the edge artifacts or use fade-in/fade-out
+
+## Buffer Management
+
+The library provides three allocation strategies for different performance requirements:
+
+### Level 1: Simple API (Allocates on each call)
+
+Best for: Prototyping, one-off processing, simplicity
+
+```rust
+// Each call allocates new Vec for frames/samples
+let frames = stft.push_samples(chunk);
+let samples = istft.push_frame(&frame);
+```
+
+### Level 2: Reusable Containers (`_into` methods)
+
+Best for: Repeated processing, reduced allocator pressure
+
+```rust
+// Reuse outer Vec, but still allocates frame data
+let mut frames = Vec::new();
+let mut output = Vec::new();
+
+loop {
+    frames.clear();  // Keeps capacity
+    stft.push_samples_into(chunk, &mut frames);
+
+    for frame in &frames {
+        istft.push_frame_into(frame, &mut output);
+    }
+}
+```
+
+**Batch mode:**
+```rust
+let mut spectrum = Spectrum::new(num_frames, freq_bins);
+let mut output = Vec::new();
+
+stft.process_into(&signal, &mut spectrum);
+istft.process_into(&spectrum, &mut output);
+```
+
+### Level 3: Zero-Allocation Frame Pool (`_write` methods)
+
+Best for: Real-time audio, hard real-time constraints, minimum latency variance
+
+```rust
+// Pre-allocate frame pool once
+let max_frames = (chunk_size + config.hop_size - 1) / config.hop_size + 1;
+let mut frame_pool = vec![SpectrumFrame::new(config.freq_bins()); max_frames];
+let mut output = Vec::new();
+
+loop {
+    let mut pool_idx = 0;
+    stft.push_samples_write(chunk, &mut frame_pool, &mut pool_idx);
+
+    for i in 0..pool_idx {
+        istft.push_frame_into(&frame_pool[i], &mut output);
+    }
+}
+```
+
 
 ## Configuration
 
@@ -220,6 +309,15 @@ cargo run --example streaming_usage
 
 # Spectral manipulation (filtering, time-varying processing)
 cargo run --example spectral_processing
+
+# Advanced streaming with buffer reuse patterns
+cargo run --example advanced_streaming
+
+# Performance comparison of allocation strategies
+cargo run --release --example buffer_reuse
+
+# Type aliases usage demonstration
+cargo run --example type_aliases
 ```
 
 ## Implementation Details
