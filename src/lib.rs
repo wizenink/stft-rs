@@ -40,9 +40,9 @@ pub mod prelude {
         MultiChannelStreamingIstft, MultiChannelStreamingIstftF32, MultiChannelStreamingIstftF64,
         MultiChannelStreamingStft, MultiChannelStreamingStftF32, MultiChannelStreamingStftF64,
         PadMode, ReconstructionMode, Spectrum, SpectrumF32, SpectrumF64, SpectrumFrame,
-        SpectrumFrameF32, SpectrumFrameF64, StftConfig, StftConfigF32, StftConfigF64,
-        StreamingIstft, StreamingIstftF32, StreamingIstftF64, StreamingStft, StreamingStftF32,
-        StreamingStftF64, WindowType,
+        SpectrumFrameF32, SpectrumFrameF64, StftConfig, StftConfigBuilder, StftConfigBuilderF32,
+        StftConfigBuilderF64, StftConfigF32, StftConfigF64, StreamingIstft, StreamingIstftF32,
+        StreamingIstftF64, StreamingStft, StreamingStftF32, StreamingStftF64, WindowType,
     };
 }
 
@@ -126,6 +126,10 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
         T::from(1e-4).unwrap()
     }
 
+    #[deprecated(
+        since = "0.4.0",
+        note = "Use `StftConfig::builder()` instead for a more flexible API"
+    )]
     pub fn new(
         fft_size: usize,
         hop_size: usize,
@@ -156,7 +160,13 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
         Ok(config)
     }
 
+    /// Create a new builder for StftConfig
+    pub fn builder() -> StftConfigBuilder<T> {
+        StftConfigBuilder::new()
+    }
+
     /// Default: 4096 FFT, 1024 hop, Hann window, OLA mode
+    #[allow(deprecated)]
     pub fn default_4096() -> Self {
         Self::new(4096, 1024, WindowType::Hann, ReconstructionMode::Ola)
             .expect("Default config should always be valid")
@@ -251,6 +261,72 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
             });
         }
         Ok(())
+    }
+}
+
+/// Builder for StftConfig with fluent API
+pub struct StftConfigBuilder<T: Float> {
+    fft_size: Option<usize>,
+    hop_size: Option<usize>,
+    window: WindowType,
+    reconstruction_mode: ReconstructionMode,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T: Float + FromPrimitive + fmt::Debug> StftConfigBuilder<T> {
+    /// Create a new builder with default values (Hann window, OLA mode)
+    pub fn new() -> Self {
+        Self {
+            fft_size: None,
+            hop_size: None,
+            window: WindowType::Hann,
+            reconstruction_mode: ReconstructionMode::Ola,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Set the FFT size (must be a power of two)
+    pub fn fft_size(mut self, fft_size: usize) -> Self {
+        self.fft_size = Some(fft_size);
+        self
+    }
+
+    /// Set the hop size (must be > 0 and <= fft_size)
+    pub fn hop_size(mut self, hop_size: usize) -> Self {
+        self.hop_size = Some(hop_size);
+        self
+    }
+
+    /// Set the window type (default: Hann)
+    pub fn window(mut self, window: WindowType) -> Self {
+        self.window = window;
+        self
+    }
+
+    /// Set the reconstruction mode (default: OLA)
+    pub fn reconstruction_mode(mut self, mode: ReconstructionMode) -> Self {
+        self.reconstruction_mode = mode;
+        self
+    }
+
+    /// Build the StftConfig, validating all parameters
+    ///
+    /// Returns an error if:
+    /// - fft_size is not set or not a power of two
+    /// - hop_size is not set, zero, or greater than fft_size
+    /// - COLA/NOLA conditions are violated
+    #[allow(deprecated)]
+    pub fn build(self) -> Result<StftConfig<T>, ConfigError<T>> {
+        let fft_size = self.fft_size.ok_or(ConfigError::InvalidFftSize)?;
+        let hop_size = self.hop_size.ok_or(ConfigError::InvalidHopSize)?;
+
+        StftConfig::new(fft_size, hop_size, self.window, self.reconstruction_mode)
+    }
+}
+
+impl<T: Float + FromPrimitive + fmt::Debug> Default for StftConfigBuilder<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1556,6 +1632,9 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingIstft<
 // Type aliases for common float types
 pub type StftConfigF32 = StftConfig<f32>;
 pub type StftConfigF64 = StftConfig<f64>;
+
+pub type StftConfigBuilderF32 = StftConfigBuilder<f32>;
+pub type StftConfigBuilderF64 = StftConfigBuilder<f64>;
 
 pub type BatchStftF32 = BatchStft<f32>;
 pub type BatchStftF64 = BatchStft<f64>;

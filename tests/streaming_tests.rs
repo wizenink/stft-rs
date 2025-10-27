@@ -52,6 +52,7 @@ fn test_streaming_ola_roundtrip() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_streaming_wola_roundtrip() {
     let config = StftConfig::<f32>::new(4096, 1024, WindowType::Hann, ReconstructionMode::Wola)
         .expect("Config should be valid");

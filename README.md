@@ -29,7 +29,15 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 ```rust
 use stft_rs::prelude::*;
 
+// Quick start with defaults
 let config = StftConfig::<f32>::default_4096();
+
+// Or use the builder for custom configuration
+let config = StftConfig::<f32>::builder()
+    .fft_size(4096)
+    .hop_size(1024)
+    .build()
+    .expect("Valid config");
 
 let stft = BatchStft::new(config.clone());
 let istft = BatchIstft::new(config);
@@ -54,8 +62,15 @@ let config = StftConfigF32::default_4096();
 let stft = BatchStftF32::new(config.clone());
 let istft = BatchIstftF32::new(config);
 
+// With builder:
+let config = StftConfigBuilderF32::new()
+    .fft_size(4096)
+    .hop_size(1024)
+    .build()
+    .expect("Valid config");
+
 // Available aliases:
-// - StftConfigF32, StftConfigF64
+// - StftConfigF32, StftConfigF64, StftConfigBuilderF32, StftConfigBuilderF64
 // - BatchStftF32, BatchIstftF32, BatchStftF64, BatchIstftF64
 // - StreamingStftF32, StreamingIstftF32, StreamingStftF64, StreamingIstftF64
 // - SpectrumF32, SpectrumF64
@@ -71,8 +86,8 @@ use stft_rs::prelude::*;
 ```
 
 This exports:
-- Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `Spectrum`, `SpectrumFrame`
-- Type aliases: `StftConfigF32/F64`, `BatchStftF32/F64`, `BatchIstftF32/F64`, `StreamingStftF32/F64`, `StreamingIstftF32/F64`, `SpectrumF32/F64`, `SpectrumFrameF32/F64`
+- Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `StftConfigBuilder`, `Spectrum`, `SpectrumFrame`
+- Type aliases: `StftConfigF32/F64`, `StftConfigBuilderF32/F64`, `BatchStftF32/F64`, `BatchIstftF32/F64`, `StreamingStftF32/F64`, `StreamingIstftF32/F64`, `SpectrumF32/F64`, `SpectrumFrameF32/F64`
 - Enums: `ReconstructionMode`, `WindowType`, `PadMode`
 - Utilities: `apply_padding`, `interleave`, `deinterleave`, `interleave_into`, `deinterleave_into`
 
@@ -199,23 +214,45 @@ loop {
 
 ### Creating Custom Configurations
 
+Use the builder pattern for a flexible, ergonomic API:
+
 ```rust
 use stft_rs::prelude::*;
 
-// OLA mode
+// OLA mode with builder
+let config = StftConfig::<f32>::builder()
+    .fft_size(4096)
+    .hop_size(1024)
+    .window(WindowType::Hann)
+    .reconstruction_mode(ReconstructionMode::Ola)
+    .build()
+    .expect("Valid configuration");
+
+// WOLA mode with defaults (Hann window, OLA mode)
+let config = StftConfig::<f32>::builder()
+    .fft_size(2048)
+    .hop_size(512)
+    .reconstruction_mode(ReconstructionMode::Wola)
+    .build()
+    .expect("Valid configuration");
+
+// Type aliases for cleaner code
+let config = StftConfigBuilderF32::new()
+    .fft_size(4096)
+    .hop_size(1024)
+    .window(WindowType::Blackman)
+    .build()
+    .expect("Valid configuration");
+```
+
+**Legacy API (deprecated):**
+```rust
+// Old constructor still works but is deprecated
 let config = StftConfig::new(
     4096,
     1024,
     WindowType::Hann,
     ReconstructionMode::Ola
-).expect("Valid configuration");
-
-// WOLA mode
-let config = StftConfig::new(
-    2048,
-    512,
-    WindowType::Hamming,
-    ReconstructionMode::Wola
 ).expect("Valid configuration");
 ```
 

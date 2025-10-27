@@ -14,12 +14,25 @@ fn main() {
     let stft = BatchStftF32::new(config.clone());
     let istft = BatchIstftF32::new(config.clone());
 
+    // Or use builder with type aliases for custom configs
+    let custom_config = StftConfigBuilderF32::new()
+        .fft_size(4096)
+        .hop_size(1024)
+        .window(WindowType::Blackman)
+        .reconstruction_mode(ReconstructionMode::Wola)
+        .build()
+        .expect("Valid config");
+
     println!("Using type aliases makes the code cleaner:");
     println!("  Instead of: StftConfig::<f32>");
     println!("  Use: StftConfigF32");
     println!();
     println!("  Instead of: BatchStft::<f32>");
     println!("  Use: BatchStftF32");
+    println!();
+    println!("  Builder: StftConfigBuilderF32::new()");
+    println!("    .fft_size(4096).hop_size(1024)");
+    println!("    .window(WindowType::Blackman).build()");
     println!();
 
     // Generate test signal
@@ -90,7 +103,13 @@ fn main() {
 
     println!("\nAvailable type aliases:");
     println!("  Config:    StftConfigF32, StftConfigF64");
+    println!("  Builder:   StftConfigBuilderF32, StftConfigBuilderF64");
     println!("  Batch:     BatchStftF32, BatchIstftF32");
     println!("  Streaming: StreamingStftF32, StreamingIstftF32");
     println!("  Data:      SpectrumF32, SpectrumFrameF32");
+
+    println!("\nCustom config validation:");
+    println!("  FFT size: {}", custom_config.fft_size);
+    println!("  Hop size: {}", custom_config.hop_size);
+    println!("  Window: {:?}", custom_config.window);
 }
