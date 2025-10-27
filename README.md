@@ -18,7 +18,7 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 - **Multiple Window Functions**: Hann, Hamming, Blackman
 - **NOLA/COLA Validation**: Ensures reconstruction quality
 - **Flexible Buffer Management**: Three allocation strategies from simple to zero-allocation
-- **Multi-Channel Audio**: Process stereo, 5.1, 7.1+ with planar or interleaved formats
+- **Multi-Channel Audio**: Process stereo, 5.1, 7.1+ with planar or interleaved formats (parallelized with rayon)
 - **Generic Float Support**: Works with f32, f64, and other float types
 - **Type Aliases**: Convenient aliases like `StftConfigF32`, `BatchStftF32` for cleaner code
 - **Spectral Operations**: Built-in helpers for magnitude/phase manipulation, filtering, and custom processing
@@ -320,13 +320,13 @@ let filtered = istft.process(&spectrum);
 
 ## Multi-Channel Audio
 
-Process stereo, 5.1, or any channel count. Supports both planar and interleaved formats:
+Process stereo, 5.1, or any channel count. Channels are processed in parallel with rayon (enabled by default):
 
 ```rust
 // Planar: separate Vec per channel
 let left = vec![0.0; 44100];
 let right = vec![0.0; 44100];
-let spectra = stft.process_multichannel(&[left, right]);
+let spectra = stft.process_multichannel(&[left, right]); // Parallel with rayon
 
 // Interleaved: L,R,L,R...
 let interleaved = vec![0.0; 88200];
@@ -336,6 +336,8 @@ let spectra = stft.process_interleaved(&interleaved, 2);
 let channels = deinterleave(&interleaved, 2);
 let interleaved = interleave(&channels);
 ```
+
+Disable parallel processing: `cargo build --no-default-features`
 
 See `examples/multichannel_stereo.rs` and `examples/multichannel_midside.rs` for more.
 
