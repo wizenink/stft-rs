@@ -459,6 +459,5 @@ Contributions welcome! Areas for improvement:
 - [ ] Additional window functions (Kaiser, Gaussian)
 - [ ] SIMD optimizations
 - [ ] GPU acceleration support
-- [ ] Streaming multi-channel support
 - [ ] More padding modes
 - [ ] Overlap-save mode
