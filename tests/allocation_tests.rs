@@ -133,8 +133,7 @@ fn test_streaming_push_samples_write() {
 
         // _write API
         let mut pool_index = 0;
-        let frames_written =
-            stft_write.push_samples_write(chunk, &mut frame_pool, &mut pool_index);
+        let frames_written = stft_write.push_samples_write(chunk, &mut frame_pool, &mut pool_index);
         for i in 0..frames_written {
             frames_write.push(frame_pool[i].clone());
         }

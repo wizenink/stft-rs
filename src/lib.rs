@@ -319,8 +319,57 @@ impl<T: Float> SpectrumFrame<T> {
         self.resize_if_needed(data.len());
         self.data.copy_from_slice(data);
     }
+
+    /// Get the magnitude of a frequency bin
+    #[inline]
+    pub fn magnitude(&self, bin: usize) -> T {
+        let c = &self.data[bin];
+        (c.re * c.re + c.im * c.im).sqrt()
+    }
+
+    /// Get the phase of a frequency bin in radians
+    #[inline]
+    pub fn phase(&self, bin: usize) -> T {
+        let c = &self.data[bin];
+        c.im.atan2(c.re)
+    }
+
+    /// Set a frequency bin from magnitude and phase
+    pub fn set_magnitude_phase(&mut self, bin: usize, magnitude: T, phase: T) {
+        self.data[bin] = Complex::new(magnitude * phase.cos(), magnitude * phase.sin());
+    }
+
+    /// Create a SpectrumFrame from magnitude and phase arrays
+    pub fn from_magnitude_phase(magnitudes: &[T], phases: &[T]) -> Self {
+        assert_eq!(
+            magnitudes.len(),
+            phases.len(),
+            "Magnitude and phase arrays must have same length"
+        );
+        let freq_bins = magnitudes.len();
+        let data: Vec<Complex<T>> = magnitudes
+            .iter()
+            .zip(phases.iter())
+            .map(|(mag, phase)| Complex::new(*mag * phase.cos(), *mag * phase.sin()))
+            .collect();
+        Self { freq_bins, data }
+    }
+
+    /// Get all magnitudes as a Vec
+    pub fn magnitudes(&self) -> Vec<T> {
+        self.data
+            .iter()
+            .map(|c| (c.re * c.re + c.im * c.im).sqrt())
+            .collect()
+    }
+
+    /// Get all phases as a Vec
+    pub fn phases(&self) -> Vec<T> {
+        self.data.iter().map(|c| c.im.atan2(c.re)).collect()
+    }
 }
 
+#[derive(Clone)]
 pub struct Spectrum<T: Float> {
     pub num_frames: usize,
     pub freq_bins: usize,
@@ -359,6 +408,99 @@ impl<T: Float> Spectrum<T> {
                 .collect();
             SpectrumFrame::from_data(data)
         })
+    }
+
+    /// Set the real part of a bin
+    #[inline]
+    pub fn set_real(&mut self, frame: usize, bin: usize, value: T) {
+        self.data[frame * self.freq_bins + bin] = value;
+    }
+
+    /// Set the imaginary part of a bin
+    #[inline]
+    pub fn set_imag(&mut self, frame: usize, bin: usize, value: T) {
+        let offset = self.num_frames * self.freq_bins;
+        self.data[offset + frame * self.freq_bins + bin] = value;
+    }
+
+    /// Set a bin from a complex value
+    #[inline]
+    pub fn set_complex(&mut self, frame: usize, bin: usize, value: Complex<T>) {
+        self.set_real(frame, bin, value.re);
+        self.set_imag(frame, bin, value.im);
+    }
+
+    /// Get the magnitude of a frequency bin
+    #[inline]
+    pub fn magnitude(&self, frame: usize, bin: usize) -> T {
+        let re = self.real(frame, bin);
+        let im = self.imag(frame, bin);
+        (re * re + im * im).sqrt()
+    }
+
+    /// Get the phase of a frequency bin in radians
+    #[inline]
+    pub fn phase(&self, frame: usize, bin: usize) -> T {
+        let re = self.real(frame, bin);
+        let im = self.imag(frame, bin);
+        im.atan2(re)
+    }
+
+    /// Set a frequency bin from magnitude and phase
+    pub fn set_magnitude_phase(&mut self, frame: usize, bin: usize, magnitude: T, phase: T) {
+        self.set_real(frame, bin, magnitude * phase.cos());
+        self.set_imag(frame, bin, magnitude * phase.sin());
+    }
+
+    /// Get all magnitudes for a frame
+    pub fn frame_magnitudes(&self, frame: usize) -> Vec<T> {
+        (0..self.freq_bins)
+            .map(|bin| self.magnitude(frame, bin))
+            .collect()
+    }
+
+    /// Get all phases for a frame
+    pub fn frame_phases(&self, frame: usize) -> Vec<T> {
+        (0..self.freq_bins)
+            .map(|bin| self.phase(frame, bin))
+            .collect()
+    }
+
+    /// Apply a function to all bins
+    pub fn apply<F>(&mut self, mut f: F)
+    where
+        F: FnMut(usize, usize, Complex<T>) -> Complex<T>,
+    {
+        for frame in 0..self.num_frames {
+            for bin in 0..self.freq_bins {
+                let c = self.get_complex(frame, bin);
+                let new_c = f(frame, bin, c);
+                self.set_complex(frame, bin, new_c);
+            }
+        }
+    }
+
+    /// Apply a gain to a range of bins across all frames
+    pub fn apply_gain(&mut self, bin_range: std::ops::Range<usize>, gain: T) {
+        for frame in 0..self.num_frames {
+            for bin in bin_range.clone() {
+                if bin < self.freq_bins {
+                    let c = self.get_complex(frame, bin);
+                    self.set_complex(frame, bin, c * gain);
+                }
+            }
+        }
+    }
+
+    /// Zero out a range of bins across all frames
+    pub fn zero_bins(&mut self, bin_range: std::ops::Range<usize>) {
+        for frame in 0..self.num_frames {
+            for bin in bin_range.clone() {
+                if bin < self.freq_bins {
+                    self.set_complex(frame, bin, Complex::new(T::zero(), T::zero()));
+                }
+            }
+        }
     }
 }
 

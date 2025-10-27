@@ -20,6 +20,7 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 - **Flexible Buffer Management**: Three allocation strategies from simple to zero-allocation
 - **Generic Float Support**: Works with f32, f64, and other float types
 - **Type Aliases**: Convenient aliases like `StftConfigF32`, `BatchStftF32` for cleaner code
+- **Spectral Operations**: Built-in helpers for magnitude/phase manipulation, filtering, and custom processing
 - **No External Tensor Libraries**: Works directly with slices
 
 ## Quick Start
@@ -240,45 +241,78 @@ let config = StftConfig::new(
 
 ## Spectral Processing
 
-The library provides easy access to manipulate spectrum data:
+The library provides powerful helpers for frequency domain manipulation:
 
 ```rust
 let mut spectrum = stft.process(&signal);
 
-// Access individual frames and bins
-for frame in 0..spectrum.num_frames {
-    for bin in 0..spectrum.freq_bins {
-        let complex = spectrum.get_complex(frame, bin);
-        let magnitude = (complex.re * complex.re + complex.im * complex.im).sqrt();
-        let phase = complex.im.atan2(complex.re);
+// Get magnitude and phase
+let mag = spectrum.magnitude(frame, bin);
+let phase = spectrum.phase(frame, bin);
 
-        // Modify spectrum...
-    }
-}
+// Set from magnitude and phase
+spectrum.set_magnitude_phase(frame, bin, new_mag, new_phase);
 
-// Or iterate over frames
-for frame in spectrum.frames() {
-    for complex_value in &frame.data {
-        // Process each frequency bin
-    }
-}
+// Get all magnitudes/phases for a frame
+let magnitudes = spectrum.frame_magnitudes(frame);
+let phases = spectrum.frame_phases(frame);
+
+// Apply gain to frequency range
+spectrum.apply_gain(100..200, 0.5); // Attenuate bins 100-200
+
+// Zero out frequency range
+spectrum.zero_bins(0..50); // Remove DC and low frequencies
+
+// Custom processing with closure
+spectrum.apply(|frame, bin, complex| {
+    // Return modified complex value
+    complex * gain_factor
+});
 ```
 
 ### Examples
 
-#### High-pass Filter
+#### High-Pass Filter
 
 ```rust
 let mut spectrum = stft.process(&signal);
-let cutoff_bin = 100;
 
+// Zero out low frequencies (simple and clean!)
+spectrum.zero_bins(0..100);
+
+let filtered = istft.process(&spectrum);
+```
+
+#### Volume Control (Spectral Domain)
+
+```rust
+let mut spectrum = stft.process(&signal);
+
+// Apply gain in magnitude/phase domain
 for frame in 0..spectrum.num_frames {
-    for bin in 0..cutoff_bin {
-        let idx = frame * spectrum.freq_bins + bin;
-        spectrum.data[idx] = 0.0; // Zero real part
-        spectrum.data[spectrum.num_frames * spectrum.freq_bins + idx] = 0.0; // Zero imag part
+    for bin in 0..spectrum.freq_bins {
+        let mag = spectrum.magnitude(frame, bin);
+        let phase = spectrum.phase(frame, bin);
+        spectrum.set_magnitude_phase(frame, bin, mag * 0.5, phase);
     }
 }
+
+let quieter = istft.process(&spectrum);
+```
+
+#### Band-Pass Filter
+
+```rust
+let mut spectrum = stft.process(&signal);
+
+// Keep only frequencies between 300 Hz and 3000 Hz
+let sample_rate = 44100.0;
+let freq_resolution = sample_rate / config.fft_size as f32;
+let low_bin = (300.0 / freq_resolution) as usize;
+let high_bin = (3000.0 / freq_resolution) as usize;
+
+spectrum.zero_bins(0..low_bin);
+spectrum.zero_bins(high_bin..spectrum.freq_bins);
 
 let filtered = istft.process(&spectrum);
 ```
@@ -318,6 +352,9 @@ cargo run --release --example buffer_reuse
 
 # Type aliases usage demonstration
 cargo run --example type_aliases
+
+# Spectral operations (magnitude/phase, filtering)
+cargo run --example spectral_operations
 ```
 
 ## Implementation Details
