@@ -12,6 +12,7 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 - **Batch Processing**: Process entire audio buffers at once
 - **Streaming Support**: Incremental processing for real-time applications
 - **High Quality**: >138 dB SNR reconstruction
+- **SIMD Acceleration**: Architecture-independent SIMD optimizations for enhanced performance (enabled by default)
 - **Dual Reconstruction Modes**:
   - **OLA** (Overlap-Add): Optimal for spectral processing
   - **WOLA** (Weighted Overlap-Add): Standard implementation
@@ -374,7 +375,20 @@ let channels = deinterleave(&interleaved, 2);
 let interleaved = interleave(&channels);
 ```
 
-Disable parallel processing: `cargo build --no-default-features`
+### Feature Flags
+
+Control optional features via Cargo:
+
+```toml
+[dependencies]
+stft-rs = { version = "0.3", default-features = false, features = ["rayon"] }
+```
+
+Available features:
+- **`simd`** (default): Architecture-independent SIMD optimizations using `pulp`
+- **`rayon`** (default): Parallel multi-channel processing
+
+Disable all features: `cargo build --no-default-features`
 
 See `examples/multichannel_stereo.rs` and `examples/multichannel_midside.rs` for more.
 
@@ -485,6 +499,8 @@ Tests verify:
 
 - `rustfft`: High-performance FFT implementation
 - `ndarray`: Only for internal padding operations (minimal usage)
+- `pulp` (optional, default): Portable SIMD acceleration
+- `rayon` (optional, default): Parallel multi-channel processing
 
 ## License
 
@@ -494,7 +510,6 @@ Tests verify:
 
 Contributions welcome! Areas for improvement:
 - [ ] Additional window functions (Kaiser, Gaussian)
-- [ ] SIMD optimizations
 - [ ] GPU acceleration support
 - [ ] More padding modes
 - [ ] Overlap-save mode

@@ -75,17 +75,13 @@ fn test_builder_with_reconstruction_mode() {
 
 #[test]
 fn test_builder_missing_fft_size() {
-    let config = StftConfig::<f32>::builder()
-        .hop_size(1024)
-        .build();
+    let config = StftConfig::<f32>::builder().hop_size(1024).build();
     assert!(config.is_err());
 }
 
 #[test]
 fn test_builder_missing_hop_size() {
-    let config = StftConfig::<f32>::builder()
-        .fft_size(4096)
-        .build();
+    let config = StftConfig::<f32>::builder().fft_size(4096).build();
     assert!(config.is_err());
 }
 
