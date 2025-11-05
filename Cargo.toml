@@ -12,9 +12,11 @@ ndarray = "0.16.1"
 num-traits = "0.2"
 rustfft = "6.4.1"
 rayon = { version = "1.11", optional = true }
+pulp = { version = "0.18", optional = true }
 
 [features]
-default = ["rayon"]
+default = ["rayon", "simd"]
+simd = ["pulp"]
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }

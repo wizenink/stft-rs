@@ -29,11 +29,15 @@ pub fn apply_padding<T: Float>(signal: &[T], pad_amount: usize, mode: PadMode) -
         PadMode::Zero => {}
         PadMode::Edge => {
             if !signal.is_empty() {
-                for i in 0..pad_amount {
-                    padded[i] = signal[0];
+                for item in padded.iter_mut().take(pad_amount) {
+                    *item = signal[0];
                 }
-                for i in 0..pad_amount {
-                    padded[pad_amount + signal.len() + i] = signal[signal.len() - 1];
+                for item in padded
+                    .iter_mut()
+                    .skip(pad_amount + signal.len())
+                    .take(pad_amount)
+                {
+                    *item = signal[signal.len() - 1];
                 }
             }
         }
