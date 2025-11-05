@@ -21,43 +21,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-//! # stft-rs
-//!
-//! High-quality, streaming-friendly STFT/iSTFT implementation in Rust.
-//!
-//! ## Features
-//!
-//! - **Batch & Streaming Processing**: Flexible APIs for different use cases
-//! - **High Quality**: >138 dB SNR reconstruction
-//! - **SIMD Acceleration**: Architecture-independent SIMD optimizations (enabled by default)
-//! - **Multi-Channel Audio**: Parallel processing with rayon (enabled by default)
-//! - **Multiple Window Functions**: Hann, Hamming, Blackman
-//! - **Dual Reconstruction Modes**: OLA and WOLA
-//! - **Spectral Operations**: Built-in helpers for frequency domain manipulation
-//!
-//! ## Quick Start
-//!
-//! ```rust
-//! use stft_rs::prelude::*;
-//!
-//! // Configure STFT
-//! let config = StftConfigF32::default_4096();
-//! let stft = BatchStftF32::new(config.clone());
-//! let istft = BatchIstftF32::new(config);
-//!
-//! // Process signal
-//! let signal = vec![0.0f32; 44100];
-//! let spectrum = stft.process(&signal);
-//! let reconstructed = istft.process(&spectrum);
-//! ```
-//!
-//! ## Feature Flags
-//!
-//! - **`simd`** (default): Architecture-independent SIMD optimizations using `pulp`
-//! - **`rayon`** (default): Parallel multi-channel processing
-//!
-//! Disable features: `cargo build --no-default-features`
-
 use num_traits::{Float, FromPrimitive};
 use rustfft::num_complex::Complex;
 use rustfft::{Fft, FftNum, FftPlanner};
@@ -67,8 +30,6 @@ use std::sync::Arc;
 
 mod utils;
 pub use utils::{apply_padding, deinterleave, deinterleave_into, interleave, interleave_into};
-
-mod simd;
 
 pub mod prelude {
     pub use crate::utils::{
@@ -408,7 +369,7 @@ pub struct SpectrumFrame<T: Float> {
     pub data: Vec<Complex<T>>,
 }
 
-impl<T: Float + 'static> SpectrumFrame<T> {
+impl<T: Float> SpectrumFrame<T> {
     pub fn new(freq_bins: usize) -> Self {
         Self {
             freq_bins,
@@ -480,19 +441,10 @@ impl<T: Float + 'static> SpectrumFrame<T> {
 
     /// Get all magnitudes as a Vec
     pub fn magnitudes(&self) -> Vec<T> {
-        let mut real_parts = vec![T::zero(); self.freq_bins];
-        let mut imag_parts = vec![T::zero(); self.freq_bins];
-        let mut magnitudes = vec![T::zero(); self.freq_bins];
-
-        // Extract real and imaginary parts
-        for i in 0..self.freq_bins {
-            real_parts[i] = self.data[i].re;
-            imag_parts[i] = self.data[i].im;
-        }
-
-        // Use SIMD for magnitude computation
-        simd::compute_magnitudes(&real_parts, &imag_parts, &mut magnitudes);
-        magnitudes
+        self.data
+            .iter()
+            .map(|c| (c.re * c.re + c.im * c.im).sqrt())
+            .collect()
     }
 
     /// Get all phases as a Vec
@@ -508,7 +460,7 @@ pub struct Spectrum<T: Float> {
     pub data: Vec<T>,
 }
 
-impl<T: Float + 'static> Spectrum<T> {
+impl<T: Float> Spectrum<T> {
     pub fn new(num_frames: usize, freq_bins: usize) -> Self {
         Self {
             num_frames,
@@ -586,17 +538,9 @@ impl<T: Float + 'static> Spectrum<T> {
 
     /// Get all magnitudes for a frame
     pub fn frame_magnitudes(&self, frame: usize) -> Vec<T> {
-        let mut magnitudes = vec![T::zero(); self.freq_bins];
-        let offset = self.num_frames * self.freq_bins;
-
-        // Extract real and imaginary parts for this frame
-        let real_slice = &self.data[frame * self.freq_bins..(frame + 1) * self.freq_bins];
-        let imag_slice =
-            &self.data[offset + frame * self.freq_bins..offset + (frame + 1) * self.freq_bins];
-
-        // Use SIMD for magnitude computation
-        simd::compute_magnitudes(real_slice, imag_slice, &mut magnitudes);
-        magnitudes
+        (0..self.freq_bins)
+            .map(|bin| self.magnitude(frame, bin))
+            .collect()
     }
 
     /// Get all phases for a frame
@@ -622,34 +566,13 @@ impl<T: Float + 'static> Spectrum<T> {
 
     /// Apply a gain to a range of bins across all frames
     pub fn apply_gain(&mut self, bin_range: std::ops::Range<usize>, gain: T) {
-        let start_bin = bin_range.start.min(self.freq_bins);
-        let end_bin = bin_range.end.min(self.freq_bins);
-
-        if start_bin >= end_bin {
-            return;
-        }
-
-        let num_bins = end_bin - start_bin;
-        let offset = self.num_frames * self.freq_bins;
-
         for frame in 0..self.num_frames {
-            let frame_offset = frame * self.freq_bins;
-            let start_idx = frame_offset + start_bin;
-            let end_idx = frame_offset + end_bin;
-
-            // Apply gain to real parts using SIMD
-            let mut scaled_real = vec![T::zero(); num_bins];
-            simd::scale_slice(&self.data[start_idx..end_idx], gain, &mut scaled_real);
-            self.data[start_idx..end_idx].copy_from_slice(&scaled_real);
-
-            // Apply gain to imaginary parts using SIMD
-            let mut scaled_imag = vec![T::zero(); num_bins];
-            simd::scale_slice(
-                &self.data[offset + start_idx..offset + end_idx],
-                gain,
-                &mut scaled_imag,
-            );
-            self.data[offset + start_idx..offset + end_idx].copy_from_slice(&scaled_imag);
+            for bin in bin_range.clone() {
+                if bin < self.freq_bins {
+                    let c = self.get_complex(frame, bin);
+                    self.set_complex(frame, bin, c * gain);
+                }
+            }
         }
     }
 
@@ -703,20 +626,13 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
 
         let mut fft_buffer = vec![Complex::new(T::zero(), T::zero()); self.config.fft_size];
 
-        // Temporary buffer for windowed signal
-        let mut windowed = vec![T::zero(); self.config.fft_size];
-
         for (frame_idx, frame_start) in (0..padded.len() - self.config.fft_size + 1)
             .step_by(self.config.hop_size)
             .enumerate()
         {
-            // Apply window using SIMD
-            let frame_data = &padded[frame_start..frame_start + self.config.fft_size];
-            simd::apply_window(frame_data, &self.window, &mut windowed);
-
-            // Prepare FFT input
+            // Apply window and prepare FFT input
             for i in 0..self.config.fft_size {
-                fft_buffer[i] = Complex::new(windowed[i], T::zero());
+                fft_buffer[i] = Complex::new(padded[frame_start + i] * self.window[i], T::zero());
             }
 
             // Compute FFT
@@ -764,19 +680,14 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
         }
 
         let mut fft_buffer = vec![Complex::new(T::zero(), T::zero()); self.config.fft_size];
-        let mut windowed = vec![T::zero(); self.config.fft_size];
 
         for (frame_idx, frame_start) in (0..padded.len() - self.config.fft_size + 1)
             .step_by(self.config.hop_size)
             .enumerate()
         {
-            // Apply window using SIMD
-            let frame_data = &padded[frame_start..frame_start + self.config.fft_size];
-            simd::apply_window(frame_data, &self.window, &mut windowed);
-
-            // Prepare FFT input
+            // Apply window and prepare FFT input
             for i in 0..self.config.fft_size {
-                fft_buffer[i] = Complex::new(windowed[i], T::zero());
+                fft_buffer[i] = Complex::new(padded[frame_start + i] * self.window[i], T::zero());
             }
 
             // Compute FFT
@@ -921,24 +832,18 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
         let mut window_energy = vec![T::zero(); padded_len];
         let mut ifft_buffer = vec![Complex::new(T::zero(), T::zero()); self.config.fft_size];
 
-        // Precompute window energy normalization using SIMD
+        // Precompute window energy normalization
         for frame_idx in 0..num_frames {
             let pos = frame_idx * self.config.hop_size;
-            match self.config.reconstruction_mode {
-                ReconstructionMode::Ola => {
-                    // Use SIMD for accumulation
-                    simd::fused_multiply_add(
-                        &self.window,
-                        T::one(),
-                        &mut window_energy[pos..pos + self.config.fft_size],
-                    );
-                }
-                ReconstructionMode::Wola => {
-                    // Accumulate window^2
-                    simd::accumulate_squared(
-                        &self.window,
-                        &mut window_energy[pos..pos + self.config.fft_size],
-                    );
+            for i in 0..self.config.fft_size {
+                match self.config.reconstruction_mode {
+                    ReconstructionMode::Ola => {
+                        window_energy[pos + i] = window_energy[pos + i] + self.window[i];
+                    }
+                    ReconstructionMode::Wola => {
+                        window_energy[pos + i] =
+                            window_energy[pos + i] + self.window[i] * self.window[i];
+                    }
                 }
             }
         }
@@ -958,34 +863,21 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
             // Compute IFFT
             self.ifft.process(&mut ifft_buffer);
 
-            // Overlap-add using SIMD
+            // Overlap-add
             let pos = frame_idx * self.config.hop_size;
-            let fft_size_t = T::from(self.config.fft_size).unwrap();
-
-            // Extract real parts and normalize by FFT size
-            let mut real_samples = vec![T::zero(); self.config.fft_size];
             for i in 0..self.config.fft_size {
-                real_samples[i] = ifft_buffer[i].re / fft_size_t;
-            }
+                let fft_size_t = T::from(self.config.fft_size).unwrap();
+                let sample = ifft_buffer[i].re / fft_size_t;
 
-            match self.config.reconstruction_mode {
-                ReconstructionMode::Ola => {
-                    // OLA: no windowing on inverse
-                    simd::fused_multiply_add(
-                        &real_samples,
-                        T::one(),
-                        &mut overlap_buffer[pos..pos + self.config.fft_size],
-                    );
-                }
-                ReconstructionMode::Wola => {
-                    // WOLA: apply window on inverse
-                    let mut windowed_samples = vec![T::zero(); self.config.fft_size];
-                    simd::apply_window(&real_samples, &self.window, &mut windowed_samples);
-                    simd::fused_multiply_add(
-                        &windowed_samples,
-                        T::one(),
-                        &mut overlap_buffer[pos..pos + self.config.fft_size],
-                    );
+                match self.config.reconstruction_mode {
+                    ReconstructionMode::Ola => {
+                        // OLA: no windowing on inverse
+                        overlap_buffer[pos + i] = overlap_buffer[pos + i] + sample;
+                    }
+                    ReconstructionMode::Wola => {
+                        // WOLA: apply window on inverse
+                        overlap_buffer[pos + i] = overlap_buffer[pos + i] + sample * self.window[i];
+                    }
                 }
             }
         }
@@ -1020,24 +912,18 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
         let mut window_energy = vec![T::zero(); padded_len];
         let mut ifft_buffer = vec![Complex::new(T::zero(), T::zero()); self.config.fft_size];
 
-        // Precompute window energy normalization using SIMD
+        // Precompute window energy normalization
         for frame_idx in 0..num_frames {
             let pos = frame_idx * self.config.hop_size;
-            match self.config.reconstruction_mode {
-                ReconstructionMode::Ola => {
-                    // Use SIMD for accumulation
-                    simd::fused_multiply_add(
-                        &self.window,
-                        T::one(),
-                        &mut window_energy[pos..pos + self.config.fft_size],
-                    );
-                }
-                ReconstructionMode::Wola => {
-                    // Accumulate window^2
-                    simd::accumulate_squared(
-                        &self.window,
-                        &mut window_energy[pos..pos + self.config.fft_size],
-                    );
+            for i in 0..self.config.fft_size {
+                match self.config.reconstruction_mode {
+                    ReconstructionMode::Ola => {
+                        window_energy[pos + i] = window_energy[pos + i] + self.window[i];
+                    }
+                    ReconstructionMode::Wola => {
+                        window_energy[pos + i] =
+                            window_energy[pos + i] + self.window[i] * self.window[i];
+                    }
                 }
             }
         }
@@ -1057,46 +943,34 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
             // Compute IFFT
             self.ifft.process(&mut ifft_buffer);
 
-            // Overlap-add using SIMD
+            // Overlap-add
             let pos = frame_idx * self.config.hop_size;
-            let fft_size_t = T::from(self.config.fft_size).unwrap();
-
-            // Extract real parts and normalize by FFT size
-            let mut real_samples = vec![T::zero(); self.config.fft_size];
             for i in 0..self.config.fft_size {
-                real_samples[i] = ifft_buffer[i].re / fft_size_t;
-            }
+                let fft_size_t = T::from(self.config.fft_size).unwrap();
+                let sample = ifft_buffer[i].re / fft_size_t;
 
-            match self.config.reconstruction_mode {
-                ReconstructionMode::Ola => {
-                    // OLA: no windowing on inverse
-                    simd::fused_multiply_add(
-                        &real_samples,
-                        T::one(),
-                        &mut overlap_buffer[pos..pos + self.config.fft_size],
-                    );
-                }
-                ReconstructionMode::Wola => {
-                    // WOLA: apply window on inverse
-                    let mut windowed_samples = vec![T::zero(); self.config.fft_size];
-                    simd::apply_window(&real_samples, &self.window, &mut windowed_samples);
-                    simd::fused_multiply_add(
-                        &windowed_samples,
-                        T::one(),
-                        &mut overlap_buffer[pos..pos + self.config.fft_size],
-                    );
+                match self.config.reconstruction_mode {
+                    ReconstructionMode::Ola => {
+                        overlap_buffer[pos + i] = overlap_buffer[pos + i] + sample;
+                    }
+                    ReconstructionMode::Wola => {
+                        overlap_buffer[pos + i] = overlap_buffer[pos + i] + sample * self.window[i];
+                    }
                 }
             }
         }
 
-        // Normalize by window energy using SIMD
+        // Normalize by window energy
         let threshold = T::from(1e-8).unwrap();
-        let mut normalized = vec![T::zero(); padded_len];
-        simd::divide_with_threshold(&overlap_buffer, &window_energy, threshold, &mut normalized);
+        for i in 0..padded_len {
+            if window_energy[i] > threshold {
+                overlap_buffer[i] = overlap_buffer[i] / window_energy[i];
+            }
+        }
 
         // Copy to output (resize if needed)
         output.clear();
-        output.extend_from_slice(&normalized[pad_amount..pad_amount + original_time_len]);
+        output.extend_from_slice(&overlap_buffer[pad_amount..pad_amount + original_time_len]);
     }
 
     /// Reconstruct multiple channels from their spectra.
@@ -1214,23 +1088,11 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
         self.input_buffer.extend(samples.iter().copied());
 
         let mut frames = Vec::new();
-        let mut windowed = vec![T::zero(); self.config.fft_size];
 
         while self.input_buffer.len() >= self.config.fft_size {
-            // Extract frame data
-            let frame_data: Vec<T> = self
-                .input_buffer
-                .iter()
-                .take(self.config.fft_size)
-                .copied()
-                .collect();
-
-            // Apply window using SIMD
-            simd::apply_window(&frame_data, &self.window, &mut windowed);
-
-            // Prepare FFT input
+            // Process one frame
             for i in 0..self.config.fft_size {
-                self.fft_buffer[i] = Complex::new(windowed[i], T::zero());
+                self.fft_buffer[i] = Complex::new(self.input_buffer[i] * self.window[i], T::zero());
             }
 
             self.fft.process(&mut self.fft_buffer);
@@ -1257,23 +1119,11 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
         self.input_buffer.extend(samples.iter().copied());
 
         let initial_len = output.len();
-        let mut windowed = vec![T::zero(); self.config.fft_size];
 
         while self.input_buffer.len() >= self.config.fft_size {
-            // Extract frame data
-            let frame_data: Vec<T> = self
-                .input_buffer
-                .iter()
-                .take(self.config.fft_size)
-                .copied()
-                .collect();
-
-            // Apply window using SIMD
-            simd::apply_window(&frame_data, &self.window, &mut windowed);
-
-            // Prepare FFT input
+            // Process one frame
             for i in 0..self.config.fft_size {
-                self.fft_buffer[i] = Complex::new(windowed[i], T::zero());
+                self.fft_buffer[i] = Complex::new(self.input_buffer[i] * self.window[i], T::zero());
             }
 
             self.fft.process(&mut self.fft_buffer);
@@ -1312,23 +1162,11 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
 
         let initial_index = *pool_index;
         let freq_bins = self.config.freq_bins();
-        let mut windowed = vec![T::zero(); self.config.fft_size];
 
         while self.input_buffer.len() >= self.config.fft_size && *pool_index < frame_pool.len() {
-            // Extract frame data
-            let frame_data: Vec<T> = self
-                .input_buffer
-                .iter()
-                .take(self.config.fft_size)
-                .copied()
-                .collect();
-
-            // Apply window using SIMD
-            simd::apply_window(&frame_data, &self.window, &mut windowed);
-
-            // Prepare FFT input
+            // Process one frame
             for i in 0..self.config.fft_size {
-                self.fft_buffer[i] = Complex::new(windowed[i], T::zero());
+                self.fft_buffer[i] = Complex::new(self.input_buffer[i] * self.window[i], T::zero());
             }
 
             self.fft.process(&mut self.fft_buffer);
@@ -1387,7 +1225,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingStft<T
     }
 
     /// Push samples for all channels and get frames for each channel.
-    /// Returns `Vec<Vec<SpectrumFrame>>`, outer Vec = channels, inner Vec = frames.
+    /// Returns Vec<Vec<SpectrumFrame>>, outer Vec = channels, inner Vec = frames.
     ///
     /// # Arguments
     ///
@@ -1714,7 +1552,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingIstft<
     }
 
     /// Push frames for all channels and get samples for each channel.
-    /// Returns `Vec<Vec<T>>`, outer Vec = channels, inner Vec = samples.
+    /// Returns Vec<Vec<T>>, outer Vec = channels, inner Vec = samples.
     ///
     /// # Arguments
     ///
