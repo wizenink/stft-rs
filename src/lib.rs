@@ -31,7 +31,15 @@ use std::sync::Arc;
 mod utils;
 pub use utils::{apply_padding, deinterleave, deinterleave_into, interleave, interleave_into};
 
+pub mod mel;
+
 pub mod prelude {
+    pub use crate::mel::{
+        BatchMelSpectrogram, BatchMelSpectrogramF32, BatchMelSpectrogramF64, MelConfig,
+        MelConfigF32, MelConfigF64, MelFilterbank, MelFilterbankF32, MelFilterbankF64, MelNorm,
+        MelScale, MelSpectrum, MelSpectrumF32, MelSpectrumF64, StreamingMelSpectrogram,
+        StreamingMelSpectrogramF32, StreamingMelSpectrogramF64,
+    };
     pub use crate::utils::{
         apply_padding, deinterleave, deinterleave_into, interleave, interleave_into,
     };
@@ -189,7 +197,7 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
     /// Validate NOLA condition: sum(w^2) > threshold everywhere
     pub fn validate_nola(&self) -> Result<(), ConfigError<T>> {
         let window = self.generate_window();
-        let num_overlaps = (self.fft_size + self.hop_size - 1) / self.hop_size;
+        let num_overlaps = self.fft_size.div_ceil(self.hop_size);
         let test_len = self.fft_size + (num_overlaps - 1) * self.hop_size;
         let mut energy = vec![T::zero(); test_len];
 
@@ -227,10 +235,10 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
         let window_len = window.len();
 
         let mut cola_sum_period = vec![T::zero(); self.hop_size];
-        for i in 0..window_len {
+        (0..window_len).for_each(|i| {
             let idx = i % self.hop_size;
             cola_sum_period[idx] = cola_sum_period[idx] + window[i];
-        }
+        });
 
         let zero = T::zero();
         let min_sum = cola_sum_period
@@ -639,11 +647,11 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
             self.fft.process(&mut fft_buffer);
 
             // Store positive frequencies in flat layout
-            for bin in 0..freq_bins {
+            (0..freq_bins).for_each(|bin| {
                 let idx = frame_idx * freq_bins + bin;
                 result.data[idx] = fft_buffer[bin].re;
                 result.data[num_frames * freq_bins + idx] = fft_buffer[bin].im;
-            }
+            });
         }
 
         result
@@ -694,11 +702,11 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
             self.fft.process(&mut fft_buffer);
 
             // Store positive frequencies in flat layout
-            for bin in 0..freq_bins {
+            (0..freq_bins).for_each(|bin| {
                 let idx = frame_idx * freq_bins + bin;
                 spectrum.data[idx] = fft_buffer[bin].re;
                 spectrum.data[num_frames * freq_bins + idx] = fft_buffer[bin].im;
-            }
+            });
         }
 
         true
@@ -851,9 +859,9 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
         // Process each frame
         for frame_idx in 0..num_frames {
             // Build full spectrum with conjugate symmetry
-            for bin in 0..spectrum.freq_bins {
+            (0..spectrum.freq_bins).for_each(|bin| {
                 ifft_buffer[bin] = spectrum.get_complex(frame_idx, bin);
-            }
+            });
 
             // Conjugate symmetry for negative frequencies (skip DC and Nyquist)
             for bin in 1..(spectrum.freq_bins - 1) {
@@ -931,9 +939,9 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
         // Process each frame
         for frame_idx in 0..num_frames {
             // Build full spectrum with conjugate symmetry
-            for bin in 0..spectrum.freq_bins {
+            (0..spectrum.freq_bins).for_each(|bin| {
                 ifft_buffer[bin] = spectrum.get_complex(frame_idx, bin);
-            }
+            });
 
             // Conjugate symmetry for negative frequencies (skip DC and Nyquist)
             for bin in 1..(spectrum.freq_bins - 1) {
