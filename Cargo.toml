@@ -1,14 +1,14 @@
 [package]
 name = "stft-rs"
 description = "Simple, streaming-friendly STFT implementation"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 authors = ["David Maseda Neira <david.masedan@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/wizenink/stft-rs"
 
 [dependencies]
-ndarray = "0.16.1"
+ndarray = "0.17.1"
 num-traits = "0.2"
 rustfft = "6.4.1"
 rayon = { version = "1.11", optional = true }
@@ -25,4 +25,3 @@ rand_distr = "0.5.1"
 [[bench]]
 name = "stft-bench"
 harness = false
-
