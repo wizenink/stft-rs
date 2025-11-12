@@ -22,6 +22,7 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 - **Generic Float Support**: Works with f32, f64, and other float types
 - **Type Aliases**: Convenient aliases like `StftConfigF32`, `BatchStftF32` for cleaner code
 - **Spectral Operations**: Built-in helpers for magnitude/phase manipulation, filtering, and custom processing
+- **Mel Spectrograms**: Perceptual frequency analysis with HTK/Slaney scales, log-mel, and delta features → [MEL.md](MEL.md)
 - **No External Tensor Libraries**: Works directly with slices
 
 ## Quick Start
@@ -48,6 +49,30 @@ let spectrum = stft.process(&signal);
 // Manipulate spectrum here...
 
 let reconstructed = istft.process(&spectrum);
+```
+
+### Mel Spectrogram Quick Start
+
+```rust
+use stft_rs::prelude::*;
+
+// Create STFT and mel processors
+let stft_config = StftConfigF32::default_4096();
+let stft = BatchStftF32::new(stft_config);
+
+let mel_config = MelConfigF32::default(); // 80 mel bins, Slaney scale
+let mel_proc = BatchMelSpectrogramF32::new(44100.0, 4096, &mel_config);
+
+// Process audio to mel spectrogram
+let signal: Vec<f32> = vec![0.0; 44100];
+let spectrum = stft.process(&signal);
+let mel_spec = mel_proc.process(&spectrum);
+
+// Convert to log-mel (dB scale) and add delta features
+let log_mel = mel_spec.to_db(None, None);
+let with_deltas = log_mel.with_deltas(Some(2)); // 240 features (80*3)
+
+// See MEL.md for complete documentation
 ```
 
 ### Type Aliases for Convenience
@@ -88,6 +113,7 @@ use stft_rs::prelude::*;
 This exports:
 - Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `StftConfigBuilder`, `Spectrum`, `SpectrumFrame`
 - Type aliases: `StftConfigF32/F64`, `StftConfigBuilderF32/F64`, `BatchStftF32/F64`, `BatchIstftF32/F64`, `StreamingStftF32/F64`, `StreamingIstftF32/F64`, `SpectrumF32/F64`, `SpectrumFrameF32/F64`
+- Mel types: `MelConfig`, `MelSpectrum`, `BatchMelSpectrogram`, `StreamingMelSpectrogram`, `MelScale`, `MelNorm` (+ F32/F64 aliases)
 - Enums: `ReconstructionMode`, `WindowType`, `PadMode`
 - Utilities: `apply_padding`, `interleave`, `deinterleave`, `interleave_into`, `deinterleave_into`
 
