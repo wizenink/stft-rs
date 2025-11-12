@@ -33,6 +33,9 @@ pub use utils::{apply_padding, deinterleave, deinterleave_into, interleave, inte
 
 pub mod mel;
 
+#[cfg(feature = "visualization")]
+pub mod visualization;
+
 pub mod prelude {
     pub use crate::mel::{
         BatchMelSpectrogram, BatchMelSpectrogramF32, BatchMelSpectrogramF64, MelConfig,
