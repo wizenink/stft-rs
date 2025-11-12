@@ -1,11 +1,11 @@
-![crates.io](https://img.shields.io/crates/v/stft-rs.svg)
-# stft-rs
+# stft-ts
+
+[![crates.io](https://img.shields.io/crates/v/stft-rs.svg)](https://crates.io/crates/stft-rs) [![Documentation](https://docs.rs/stft-rs/badge.svg)](https://docs.rs/stft-rs) [![MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/wizenink/stft-rs/LICENSE)
 
 High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with raw slices (`&[f32]`).
 
-
 > [!CAUTION]
-> This crate is a WIP, expect API changes and breakage until first stable version 
+> This crate is a WIP, expect API changes and breakage until first stable version
 
 ## Features
 
@@ -111,6 +111,7 @@ use stft_rs::prelude::*;
 ```
 
 This exports:
+
 - Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `StftConfigBuilder`, `Spectrum`, `SpectrumFrame`
 - Type aliases: `StftConfigF32/F64`, `StftConfigBuilderF32/F64`, `BatchStftF32/F64`, `BatchIstftF32/F64`, `StreamingStftF32/F64`, `StreamingIstftF32/F64`, `SpectrumF32/F64`, `SpectrumFrameF32/F64`
 - Mel types: `MelConfig`, `MelSpectrum`, `BatchMelSpectrogram`, `StreamingMelSpectrogram`, `MelScale`, `MelNorm` (+ F32/F64 aliases)
@@ -207,6 +208,7 @@ loop {
 ```
 
 **Batch mode:**
+
 ```rust
 let mut spectrum = Spectrum::new(num_frames, freq_bins);
 let mut output = Vec::new();
@@ -234,7 +236,6 @@ loop {
     }
 }
 ```
-
 
 ## Configuration
 
@@ -272,6 +273,7 @@ let config = StftConfigBuilderF32::new()
 ```
 
 **Legacy API (deprecated):**
+
 ```rust
 // Old constructor still works but is deprecated
 let config = StftConfig::new(
@@ -291,6 +293,7 @@ let config = StftConfig::new(
 ### Reconstruction Modes
 
 #### OLA (Overlap-Add)
+
 - Window applied on forward transform only
 - No window on inverse transform
 - Normalizes by accumulated window energy: `sum(w)`
@@ -298,6 +301,7 @@ let config = StftConfig::new(
 - **Requires**: COLA (Constant Overlap-Add) condition
 
 #### WOLA (Weighted Overlap-Add)
+
 - Window applied on both forward and inverse transforms
 - Normalizes by accumulated window squared: `sum(w²)`
 - **Use for**: Standard analysis/resynthesis
@@ -467,6 +471,7 @@ X[k,n] = Σ x[n + m] * w[m] * e^(-j2πkm/N)
 ```
 
 Where:
+
 - `x[n]`: Input signal
 - `w[m]`: Window function
 - `N`: FFT size
@@ -476,11 +481,13 @@ Where:
 ### iSTFT Reconstruction
 
 **OLA Mode:**
+
 ```
 x[n] = Σ IFFT(X[k,m]) / Σ w[n - m*hop]
 ```
 
 **WOLA Mode:**
+
 ```
 x[n] = Σ IFFT(X[k,m]) * w[n - m*hop] / Σ w²[n - m*hop]
 ```
@@ -497,15 +504,16 @@ cargo test --lib -- --nocapture
 ```
 
 Tests verify:
--  NOLA/COLA condition validation
--  Batch OLA roundtrip (>138 dB SNR)
--  Batch WOLA roundtrip (>138 dB SNR)
--  Streaming OLA roundtrip (>138 dB SNR)
--  Streaming WOLA roundtrip (>138 dB SNR)
--  Batch vs streaming consistency
--  All window functions (Hann, Hamming, Blackman)
--  Constant signal reconstruction
--  Padding modes (reflect, zero, edge)
+
+- NOLA/COLA condition validation
+- Batch OLA roundtrip (>138 dB SNR)
+- Batch WOLA roundtrip (>138 dB SNR)
+- Streaming OLA roundtrip (>138 dB SNR)
+- Streaming WOLA roundtrip (>138 dB SNR)
+- Batch vs streaming consistency
+- All window functions (Hann, Hamming, Blackman)
+- Constant signal reconstruction
+- Padding modes (reflect, zero, edge)
 
 ## Dependencies
 
@@ -519,6 +527,7 @@ Tests verify:
 ## Contributing
 
 Contributions welcome! Areas for improvement:
+
 - [ ] Additional window functions (Kaiser, Gaussian)
 - [ ] SIMD optimizations
 - [ ] GPU acceleration support
