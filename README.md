@@ -1,4 +1,4 @@
-# stft-ts
+# stft-rs
 
 [![crates.io](https://img.shields.io/crates/v/stft-rs.svg)](https://crates.io/crates/stft-rs) [![Documentation](https://docs.rs/stft-rs/badge.svg)](https://docs.rs/stft-rs) [![MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/wizenink/stft-rs/LICENSE)
 
