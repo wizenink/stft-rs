@@ -16,7 +16,7 @@ fn main() {
 
     #[cfg(feature = "visualization")]
     {
-        println!("🎵 Generating test signals and spectrograms...\n");
+        println!("Generating test signals and spectrograms...\n");
 
         // Example 1: Chirp signal (frequency sweep)
         println!("1. Chirp Signal (100Hz → 4kHz)");
@@ -34,7 +34,7 @@ fn main() {
         println!("\n4. Color Map Comparison");
         compare_colormaps();
 
-        println!("\n✅ Done! Generated spectrograms:");
+        println!("\nDone! Generated spectrograms:");
         println!("   - chirp_viridis.png");
         println!("   - chirp_magma.png");
         println!("   - multitone.png");
@@ -68,7 +68,7 @@ fn generate_chirp_spectrogram() {
     // Save with default settings (Viridis)
     spectrum.save_image("chirp_viridis.png").unwrap();
     println!(
-        "   ✓ chirp_viridis.png ({}x{} pixels)",
+        "   chirp_viridis.png ({}x{} pixels)",
         spectrum.num_frames, spectrum.freq_bins
     );
 
@@ -82,7 +82,7 @@ fn generate_chirp_spectrogram() {
     spectrum
         .save_image_with("chirp_magma.png", &vis_config)
         .unwrap();
-    println!("   ✓ chirp_magma.png (800x400 pixels, custom dB range)");
+    println!("   chirp_magma.png (800x400 pixels, custom dB range)");
 }
 
 #[cfg(feature = "visualization")]
@@ -119,7 +119,7 @@ fn generate_multitone_spectrogram() {
     spectrum
         .save_image_with("multitone.png", &vis_config)
         .unwrap();
-    println!("   ✓ multitone.png (1000x512 pixels)");
+    println!("   multitone.png (1000x512 pixels)");
     println!("      Should show 3 horizontal lines at 440Hz, 880Hz, and 1320Hz");
 }
 
@@ -164,17 +164,26 @@ fn generate_mel_spectrogram() {
     let mel_proc = BatchMelSpectrogramF32::new(sample_rate, 4096, &mel_config);
     let mel_spec = mel_proc.process_db(&spectrum, None, None); // Convert to dB
 
+    // Debug: check actual data range
+    let min_val = mel_spec.data.iter().copied().fold(f32::INFINITY, f32::min);
+    let max_val = mel_spec
+        .data
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    println!("   Mel data range: {:.2} to {:.2} dB", min_val, max_val);
+
     let vis_config = VisualizationConfig {
         colormap: ColorMap::Viridis,
         width: Some(800),
         height: Some(400),
-        db_range: (-80.0, 0.0),
+        db_range: (min_val, max_val), // Use actual data range
     };
 
-    // mel_spec
-    //     .save_image_with("mel_speech.png", &vis_config)
-    //     .unwrap();
-    println!("   ✓ mel_speech.png (800x400 pixels, 80 mel bins)");
+    mel_spec
+        .save_image_with("mel_speech.png", &vis_config)
+        .unwrap();
+    println!("mel_speech.png (800x400 pixels, 80 mel bins)");
     println!("      Shows mel-scale frequency analysis (speech-optimized)");
 }
 
@@ -219,6 +228,6 @@ fn compare_colormaps() {
             db_range: (-80.0, -20.0),
         };
         spectrum.save_image_with(filename, &vis_config).unwrap();
-        println!("   ✓ {}", filename);
+        println!("   {}", filename);
     }
 }

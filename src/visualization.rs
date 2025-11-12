@@ -120,3 +120,70 @@ impl<T: Float> SpectrumExt<T> for crate::Spectrum<T> {
         img
     }
 }
+
+impl<T: Float> SpectrumExt<T> for crate::mel::MelSpectrum<T> {
+    fn save_image(&self, path: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
+        self.save_image_with(path, &VisualizationConfig::default())
+    }
+
+    fn save_image_with(
+        &self,
+        path: impl AsRef<Path>,
+        config: &VisualizationConfig,
+    ) -> Result<(), Box<dyn Error>> {
+        let img = self.to_image_with(config);
+        img.save(path)?;
+        Ok(())
+    }
+
+    fn to_image(&self) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+        self.to_image_with(&VisualizationConfig::default())
+    }
+
+    fn to_image_with(&self, config: &VisualizationConfig) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+        let gradient = config.colormap.to_gradient();
+
+        let width = config.width.unwrap_or(self.num_frames as u32);
+        let height = config.height.unwrap_or(self.n_mels as u32);
+
+        let mut img = ImageBuffer::new(width, height);
+
+        let mut mag_db = Vec::with_capacity(self.num_frames * self.n_mels);
+
+        for frame in 0..self.num_frames {
+            for bin in 0..self.n_mels {
+                let val = self.get(frame, bin).to_f64().unwrap_or(0.0);
+                mag_db.push(val);
+            }
+        }
+
+        let (min_db, max_db) = config.db_range;
+        let range = max_db - min_db;
+
+        for y in 0..height {
+            for x in 0..width {
+                let frame = (x as f32 * self.num_frames as f32 / width as f32) as usize;
+                let bin =
+                    ((height - 1 - y) as f32 * self.n_mels as f32 / height as f32) as usize;
+                // Flip Y axis to have low freq at the bottom
+
+                let db = mag_db[frame * self.n_mels + bin];
+                let normalized = ((db - min_db as f64) / range as f64).clamp(0.0, 1.0);
+
+                let color = gradient.at(normalized as f32);
+
+                img.put_pixel(
+                    x,
+                    y,
+                    Rgb([
+                        (color.r * 255.0) as u8,
+                        (color.g * 255.0) as u8,
+                        (color.b * 255.0) as u8,
+                    ]),
+                );
+            }
+        }
+
+        img
+    }
+}
