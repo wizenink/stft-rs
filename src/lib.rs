@@ -348,22 +348,22 @@ fn generate_window<T: Float + FromPrimitive>(window_type: WindowType, size: usiz
                 let half = T::from(0.5).unwrap();
                 let one = T::one();
                 let i_t = T::from(i).unwrap();
-                let size_m1 = T::from(size - 1).unwrap();
-                half * (one - (two * pi * i_t / size_m1).cos())
+                let size_t = T::from(size).unwrap();  // Use N, not N-1 for periodic window
+                half * (one - (two * pi * i_t / size_t).cos())
             })
             .collect(),
         WindowType::Hamming => (0..size)
             .map(|i| {
                 let i_t = T::from(i).unwrap();
-                let size_m1 = T::from(size - 1).unwrap();
-                T::from(0.54).unwrap() - T::from(0.46).unwrap() * (two * pi * i_t / size_m1).cos()
+                let size_t = T::from(size).unwrap();  // Use N, not N-1 for periodic window
+                T::from(0.54).unwrap() - T::from(0.46).unwrap() * (two * pi * i_t / size_t).cos()
             })
             .collect(),
         WindowType::Blackman => (0..size)
             .map(|i| {
                 let i_t = T::from(i).unwrap();
-                let size_m1 = T::from(size - 1).unwrap();
-                let angle = two * pi * i_t / size_m1;
+                let size_t = T::from(size).unwrap();  // Use N, not N-1 for periodic window
+                let angle = two * pi * i_t / size_t;
                 T::from(0.42).unwrap() - T::from(0.5).unwrap() * angle.cos()
                     + T::from(0.08).unwrap() * (two * angle).cos()
             })
