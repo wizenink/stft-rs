@@ -667,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "stft-rs"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "criterion",
  "ndarray 0.17.1",

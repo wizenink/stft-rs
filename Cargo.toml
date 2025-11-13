@@ -1,7 +1,7 @@
 [package]
 name = "stft-rs"
 description = "Simple, streaming-friendly STFT implementation with mel spectrogram support"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 authors = ["David Maseda Neira <david.masedan@gmail.com>"]
 license = "MIT"
