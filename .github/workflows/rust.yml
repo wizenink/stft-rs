@@ -10,13 +10,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  # Test with default features (std + rustfft)
+  test-rustfft:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - name: Build
+    - name: Build with rustfft (default)
       run: cargo build --verbose
-    - name: Run tests
+    - name: Run tests with rustfft
       run: cargo test --verbose
+    - name: Run tests with rayon
+      run: cargo test --verbose --features rayon
+
+  # Test with microfft backend (no_std)
+  test-microfft:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build with microfft (no_std)
+      run: cargo build --no-default-features --features microfft-backend --verbose
+    - name: Run tests with microfft
+      run: cargo test --no-default-features --features microfft-backend --verbose
+    - name: Check lib compiles in no_std
+      run: cargo check --no-default-features --features microfft-backend --lib
+
+  # Compare both backends to ensure identical behavior
+  backend-comparison:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run backend comparison script
+      run: ./scripts/compare_backends.sh
+    - name: Upload comparison results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-comparison-results
+        path: results_*.txt
