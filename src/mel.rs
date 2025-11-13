@@ -4,6 +4,13 @@
 //! recognition and audio processing. It converts linear frequency STFT bins
 //! into perceptually-motivated mel-scale bins.
 
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
+#[cfg(feature = "std")]
+use std::vec;
+
+use core::fmt;
 use num_traits::Float;
 
 /// Mel scale variant for frequency conversion.
@@ -143,7 +150,7 @@ pub struct MelFilterbank<T: Float> {
     pub weights: Vec<Vec<(usize, T)>>,
 }
 
-impl<T: Float + std::fmt::Debug> MelFilterbank<T> {
+impl<T: Float + fmt::Debug> MelFilterbank<T> {
     /// Create a new mel filterbank.
     ///
     /// # Arguments
@@ -496,7 +503,7 @@ pub struct BatchMelSpectrogram<T: Float> {
     use_power: bool,
 }
 
-impl<T: Float + std::fmt::Debug> BatchMelSpectrogram<T> {
+impl<T: Float + fmt::Debug> BatchMelSpectrogram<T> {
     /// Create a new batch mel spectrogram processor.
     ///
     /// # Arguments
@@ -594,7 +601,7 @@ pub struct StreamingMelSpectrogram<T: Float> {
     use_power: bool,
 }
 
-impl<T: Float + std::fmt::Debug> StreamingMelSpectrogram<T> {
+impl<T: Float + fmt::Debug> StreamingMelSpectrogram<T> {
     /// Create a new streaming mel spectrogram processor.
     ///
     /// # Arguments

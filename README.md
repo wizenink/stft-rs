@@ -12,6 +12,10 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 - **Batch Processing**: Process entire audio buffers at once
 - **Streaming Support**: Incremental processing for real-time applications
 - **High Quality**: >138 dB SNR reconstruction
+- **no_std Support**: Run on embedded systems without the standard library! 🚀
+  - **Dual FFT Backends**: Choose the right backend for your environment
+    - `rustfft` (default): Full-featured for std environments, supports f32/f64 and any FFT size
+    - `microfft`: Lightweight for no_std/embedded, f32 only, power-of-2 sizes up to 4096
 - **Dual Reconstruction Modes**:
   - **OLA** (Overlap-Add): Optimal for spectral processing
   - **WOLA** (Weighted Overlap-Add): Standard implementation
@@ -112,7 +116,7 @@ use stft_rs::prelude::*;
 
 This exports:
 
-- Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `StftConfigBuilder`, `Spectrum`, `SpectrumFrame`
+- Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `StftConfigBuilder`, `Spectrum`, `SpectrumFrame`, `Complex`
 - Type aliases: `StftConfigF32/F64`, `StftConfigBuilderF32/F64`, `BatchStftF32/F64`, `BatchIstftF32/F64`, `StreamingStftF32/F64`, `StreamingIstftF32/F64`, `SpectrumF32/F64`, `SpectrumFrameF32/F64`
 - Mel types: `MelConfig`, `MelSpectrum`, `BatchMelSpectrogram`, `StreamingMelSpectrogram`, `MelScale`, `MelNorm` (+ F32/F64 aliases)
 - Enums: `ReconstructionMode`, `WindowType`, `PadMode`
@@ -404,9 +408,57 @@ let channels = deinterleave(&interleaved, 2);
 let interleaved = interleave(&channels);
 ```
 
-Disable parallel processing: `cargo build --no-default-features`
-
 See `examples/multichannel_stereo.rs` and `examples/multichannel_midside.rs` for more.
+
+## Embedded / no_std Support
+
+stft-rs can run on embedded systems without the standard library! Perfect for audio processing on microcontrollers, DSPs, and bare-metal environments.
+
+### Using the microfft Backend for no_std
+
+```toml
+[dependencies]
+stft-rs = { version = "0.4", default-features = false, features = ["microfft-backend"] }
+```
+
+**Important notes:**
+
+- microfft backend only supports f32 (not f64)
+- FFT sizes must be power-of-2 from 2 to 4096
+- Requires an allocator (uses `alloc` crate)
+
+### Example no_std Configuration
+
+```rust
+#![no_std]
+
+extern crate alloc;
+use alloc::vec::Vec;
+use stft_rs::prelude::*;
+
+// Works great on embedded!
+let config = StftConfigF32::builder()
+    .fft_size(2048)  // Must be power-of-2
+    .hop_size(512)
+    .build()
+    .expect("Valid config");
+
+let stft = BatchStftF32::new(config.clone());
+let istft = BatchIstftF32::new(config);
+
+let signal: Vec<f32> = Vec::from_slice(&audio_buffer);
+let spectrum = stft.process(&signal);
+let reconstructed = istft.process(&spectrum);
+```
+
+### Feature Flags
+
+- `std` (default): Standard library support with rustfft backend
+- `rustfft-backend`: Use rustfft for FFT (supports f32/f64, any size)
+- `microfft-backend`: Use microfft for no_std (f32 only, power-of-2 sizes)
+- `rayon`: Enable parallel multi-channel processing (requires std)
+
+**Note:** You cannot enable both `rustfft-backend` and `microfft-backend` at the same time.
 
 ## Performance Characteristics
 
@@ -517,8 +569,18 @@ Tests verify:
 
 ## Dependencies
 
-- `rustfft`: High-performance FFT implementation
-- `ndarray`: Only for internal padding operations (minimal usage)
+Core dependencies:
+
+- `num-traits`: Generic numeric traits (no_std compatible with `libm`)
+
+FFT backends (mutually exclusive):
+
+- `rustfft` (default): High-performance FFT for std environments
+- `microfft` (optional): Lightweight FFT for no_std/embedded
+
+Optional dependencies:
+
+- `rayon`: Parallel multi-channel processing (requires std)
 
 ## License
 
