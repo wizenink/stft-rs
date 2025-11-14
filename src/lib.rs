@@ -21,12 +21,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(not(feature = "std"))]
+use alloc::{collections::VecDeque, sync::Arc, vec, vec::Vec};
+
+#[cfg(feature = "std")]
+use std::{collections::VecDeque, sync::Arc, vec};
+
+use core::fmt;
+use core::marker::PhantomData;
 use num_traits::{Float, FromPrimitive};
-use rustfft::num_complex::Complex;
-use rustfft::{Fft, FftNum, FftPlanner};
-use std::collections::VecDeque;
-use std::fmt;
-use std::sync::Arc;
+
+pub mod fft_backend;
+use fft_backend::{Complex, FftBackend, FftNum, FftPlanner, FftPlannerTrait};
 
 mod utils;
 pub use utils::{apply_padding, deinterleave, deinterleave_into, interleave, interleave_into};
@@ -34,6 +45,7 @@ pub use utils::{apply_padding, deinterleave, deinterleave_into, interleave, inte
 pub mod mel;
 
 pub mod prelude {
+    pub use crate::fft_backend::Complex;
     pub use crate::mel::{
         BatchMelSpectrogram, BatchMelSpectrogramF32, BatchMelSpectrogramF64, MelConfig,
         MelConfigF32, MelConfigF64, MelFilterbank, MelFilterbankF32, MelFilterbankF64, MelNorm,
@@ -107,6 +119,7 @@ impl<T: Float + fmt::Display + fmt::Debug> fmt::Display for ConfigError<T> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: Float + fmt::Display + fmt::Debug> std::error::Error for ConfigError<T> {}
 
 #[derive(Debug, Clone, Copy)]
@@ -122,7 +135,7 @@ pub struct StftConfig<T: Float> {
     pub hop_size: usize,
     pub window: WindowType,
     pub reconstruction_mode: ReconstructionMode,
-    _phantom: std::marker::PhantomData<T>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
@@ -156,7 +169,7 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
             hop_size,
             window,
             reconstruction_mode,
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         };
 
         // Validate appropriate condition based on reconstruction mode
@@ -278,7 +291,7 @@ pub struct StftConfigBuilder<T: Float> {
     hop_size: Option<usize>,
     window: WindowType,
     reconstruction_mode: ReconstructionMode,
-    _phantom: std::marker::PhantomData<T>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: Float + FromPrimitive + fmt::Debug> StftConfigBuilder<T> {
@@ -289,7 +302,7 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfigBuilder<T> {
             hop_size: None,
             window: WindowType::Hann,
             reconstruction_mode: ReconstructionMode::Ola,
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -339,7 +352,7 @@ impl<T: Float + FromPrimitive + fmt::Debug> Default for StftConfigBuilder<T> {
 }
 
 fn generate_window<T: Float + FromPrimitive>(window_type: WindowType, size: usize) -> Vec<T> {
-    let pi = T::from(std::f64::consts::PI).unwrap();
+    let pi = T::from(core::f64::consts::PI).unwrap();
     let two = T::from(2.0).unwrap();
 
     match window_type {
@@ -573,7 +586,7 @@ impl<T: Float> Spectrum<T> {
     }
 
     /// Apply a gain to a range of bins across all frames
-    pub fn apply_gain(&mut self, bin_range: std::ops::Range<usize>, gain: T) {
+    pub fn apply_gain(&mut self, bin_range: core::ops::Range<usize>, gain: T) {
         for frame in 0..self.num_frames {
             for bin in bin_range.clone() {
                 if bin < self.freq_bins {
@@ -585,7 +598,7 @@ impl<T: Float> Spectrum<T> {
     }
 
     /// Zero out a range of bins across all frames
-    pub fn zero_bins(&mut self, bin_range: std::ops::Range<usize>) {
+    pub fn zero_bins(&mut self, bin_range: core::ops::Range<usize>) {
         for frame in 0..self.num_frames {
             for bin in bin_range.clone() {
                 if bin < self.freq_bins {
@@ -599,13 +612,16 @@ impl<T: Float> Spectrum<T> {
 pub struct BatchStft<T: Float + FftNum> {
     config: StftConfig<T>,
     window: Vec<T>,
-    fft: Arc<dyn Fft<T>>,
+    fft: Arc<dyn FftBackend<T>>,
 }
 
 impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
-    pub fn new(config: StftConfig<T>) -> Self {
+    pub fn new(config: StftConfig<T>) -> Self
+    where
+        FftPlanner<T>: FftPlannerTrait<T>,
+    {
         let window = config.generate_window();
-        let mut planner = FftPlanner::new();
+        let mut planner = <FftPlanner<T> as FftPlannerTrait<T>>::new();
         let fft = planner.plan_fft_forward(config.fft_size);
 
         Self {
@@ -808,13 +824,16 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
 pub struct BatchIstft<T: Float + FftNum> {
     config: StftConfig<T>,
     window: Vec<T>,
-    ifft: Arc<dyn Fft<T>>,
+    ifft: Arc<dyn FftBackend<T>>,
 }
 
 impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
-    pub fn new(config: StftConfig<T>) -> Self {
+    pub fn new(config: StftConfig<T>) -> Self
+    where
+        FftPlanner<T>: FftPlannerTrait<T>,
+    {
         let window = config.generate_window();
-        let mut planner = FftPlanner::new();
+        let mut planner = <FftPlanner<T> as FftPlannerTrait<T>>::new();
         let ifft = planner.plan_fft_inverse(config.fft_size);
 
         Self {
@@ -1069,16 +1088,19 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
 pub struct StreamingStft<T: Float + FftNum> {
     config: StftConfig<T>,
     window: Vec<T>,
-    fft: Arc<dyn Fft<T>>,
+    fft: Arc<dyn FftBackend<T>>,
     input_buffer: VecDeque<T>,
     frame_index: usize,
     fft_buffer: Vec<Complex<T>>,
 }
 
 impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
-    pub fn new(config: StftConfig<T>) -> Self {
+    pub fn new(config: StftConfig<T>) -> Self
+    where
+        FftPlanner<T>: FftPlannerTrait<T>,
+    {
         let window = config.generate_window();
-        let mut planner = FftPlanner::new();
+        let mut planner = <FftPlanner<T> as FftPlannerTrait<T>>::new();
         let fft = planner.plan_fft_forward(config.fft_size);
         let fft_buffer = vec![Complex::new(T::zero(), T::zero()); config.fft_size];
 
@@ -1217,7 +1239,10 @@ pub struct MultiChannelStreamingStft<T: Float + FftNum> {
     processors: Vec<StreamingStft<T>>,
 }
 
-impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingStft<T> {
+impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingStft<T>
+where
+    FftPlanner<T>: FftPlannerTrait<T>,
+{
     /// Create a new multi-channel streaming STFT processor.
     ///
     /// # Arguments
@@ -1311,7 +1336,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingStft<T
 pub struct StreamingIstft<T: Float + FftNum> {
     config: StftConfig<T>,
     window: Vec<T>,
-    ifft: Arc<dyn Fft<T>>,
+    ifft: Arc<dyn FftBackend<T>>,
     overlap_buffer: Vec<T>,
     window_energy: Vec<T>,
     output_position: usize,
@@ -1320,9 +1345,12 @@ pub struct StreamingIstft<T: Float + FftNum> {
 }
 
 impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
-    pub fn new(config: StftConfig<T>) -> Self {
+    pub fn new(config: StftConfig<T>) -> Self
+    where
+        FftPlanner<T>: FftPlannerTrait<T>,
+    {
         let window = config.generate_window();
-        let mut planner = FftPlanner::new();
+        let mut planner = <FftPlanner<T> as FftPlannerTrait<T>>::new();
         let ifft = planner.plan_fft_inverse(config.fft_size);
 
         // Buffer needs to hold enough samples for full overlap
@@ -1544,7 +1572,10 @@ pub struct MultiChannelStreamingIstft<T: Float + FftNum> {
     processors: Vec<StreamingIstft<T>>,
 }
 
-impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingIstft<T> {
+impl<T: Float + FftNum + FromPrimitive + fmt::Debug> MultiChannelStreamingIstft<T>
+where
+    FftPlanner<T>: FftPlannerTrait<T>,
+{
     /// Create a new multi-channel streaming iSTFT processor.
     ///
     /// # Arguments

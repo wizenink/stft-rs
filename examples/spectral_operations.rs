@@ -139,7 +139,7 @@ fn main() {
             let mag = (c.re * c.re + c.im * c.im).sqrt();
             phase_counter += 0.1;
             let random_phase = (phase_counter * 7.3_f32).sin() * PI;
-            rustfft::num_complex::Complex::new(mag * random_phase.cos(), mag * random_phase.sin())
+            Complex::new(mag * random_phase.cos(), mag * random_phase.sin())
         }
     });
 

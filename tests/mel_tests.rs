@@ -157,6 +157,7 @@ fn test_mel_spectrum_with_deltas() {
 }
 
 #[test]
+#[cfg(feature = "rustfft-backend")] // f64 not supported by microfft
 fn test_batch_mel_spectrogram_integration() {
     use crate::{BatchStft, StftConfig};
 
@@ -201,6 +202,7 @@ fn test_batch_mel_spectrogram_integration() {
 }
 
 #[test]
+#[cfg(feature = "rustfft-backend")] // f64 not supported by microfft
 fn test_streaming_mel_spectrogram_integration() {
     use crate::{StftConfig, StreamingStft};
 
