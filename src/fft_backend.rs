@@ -140,14 +140,7 @@ pub trait FftNum: Float + rustfft::FftNum + Send + Sync + 'static {}
 #[cfg(not(feature = "rustfft-backend"))]
 pub trait FftNum: Float + Send + Sync + 'static {}
 
-#[cfg(feature = "rustfft-backend")]
 impl FftNum for f32 {}
-#[cfg(feature = "rustfft-backend")]
-impl FftNum for f64 {}
-
-#[cfg(not(feature = "rustfft-backend"))]
-impl FftNum for f32 {}
-#[cfg(not(feature = "rustfft-backend"))]
 impl FftNum for f64 {}
 
 /// Trait abstracting FFT operations for both forward and inverse transforms
@@ -370,7 +363,8 @@ mod microfft_impl {
                 _ => panic!("microfft only supports power-of-2 sizes from 2 to 4096"),
             }
 
-            // Step 3: Conjugate output (no scaling - library handles 1/N normalization)
+            // Step 3: Conjugate output (no scaling - matching rustfft output. The calling code is
+            // responsible for normalizing the output)
             for val in buffer.iter_mut() {
                 val.im = -val.im;
             }
@@ -440,4 +434,6 @@ compile_error!("At least one FFT backend must be enabled: 'rustfft-backend' or '
 
 // Ensure both backends are not enabled at the same time
 #[cfg(all(feature = "rustfft-backend", feature = "microfft-backend"))]
-compile_error!("Cannot enable both 'rustfft-backend' and 'microfft-backend' at the same time. Choose one.");
+compile_error!(
+    "Cannot enable both 'rustfft-backend' and 'microfft-backend' at the same time. Choose one."
+);

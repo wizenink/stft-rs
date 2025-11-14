@@ -86,7 +86,6 @@ pub extern "C" fn _start() -> ! {
     test_stft_no_std();
 
     loop {}
-    // Exit (in a real embedded system, this would loop forever)
 }
 
 #[no_mangle]
@@ -97,7 +96,7 @@ fn test_stft_no_std() {
     let mut signal = Vec::new();
     for i in 0..4096 {
         let t = i as f32 / 44100.0;
-        let sample = (2.0 * 3.14159 * 440.0 * t).sin();
+        let sample = (2.0 * core::f32::consts::PI * 440.0 * t).sin();
         signal.push(sample);
     }
 
