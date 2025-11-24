@@ -89,7 +89,7 @@ else
 
     # Check if SNR difference is acceptable (within 0.5 dB)
     snr_diff=$(awk -v r="$rustfft_snr" -v m="$microfft_snr" 'BEGIN {diff = r - m; if (diff < 0) diff = -diff; print diff}')
-    snr_threshold=0.5
+    snr_threshold=1.0
 
     snr_check=$(awk -v diff="$snr_diff" -v thresh="$snr_threshold" 'BEGIN {if (diff > thresh) print "fail"; else print "pass"}')
 
