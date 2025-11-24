@@ -132,18 +132,8 @@ fn main() {
     writeln!(file, "Spectral statistics:").unwrap();
     let spectrum_sum: f32 = spectrum.data.iter().sum();
     let spectrum_mean = spectrum_sum / spectrum.data.len() as f32;
-    let spectrum_max = spectrum
-        .data
-        .iter()
-        .copied()
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap();
-    let spectrum_min = spectrum
-        .data
-        .iter()
-        .copied()
-        .min_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap();
+    let spectrum_max = spectrum.data.iter().copied().reduce(f32::max).unwrap();
+    let spectrum_min = spectrum.data.iter().copied().reduce(f32::min).unwrap();
 
     writeln!(file, "  Sum: {:.10e}", spectrum_sum).unwrap();
     writeln!(file, "  Mean: {:.10e}", spectrum_mean).unwrap();
