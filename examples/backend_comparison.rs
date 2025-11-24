@@ -155,16 +155,8 @@ fn main() {
     writeln!(file, "Reconstruction statistics:").unwrap();
     let recon_sum: f32 = reconstructed.iter().sum();
     let recon_mean = recon_sum / reconstructed.len() as f32;
-    let recon_max = reconstructed
-        .iter()
-        .copied()
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap();
-    let recon_min = reconstructed
-        .iter()
-        .copied()
-        .min_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap();
+    let recon_max = reconstructed.iter().copied().reduce(f32::max).unwrap();
+    let recon_min = reconstructed.iter().copied().reduce(f32::min).unwrap();
 
     writeln!(file, "  Sum: {:.10e}", recon_sum).unwrap();
     writeln!(file, "  Mean: {:.10e}", recon_mean).unwrap();
