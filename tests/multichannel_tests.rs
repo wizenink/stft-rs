@@ -309,6 +309,7 @@ fn test_multichannel_mismatched_lengths() {
 }
 
 #[test]
+#[cfg(feature = "rustfft-backend")] // f64 not supported by microfft
 fn test_multichannel_f64() {
     let config = StftConfigF64::default_4096();
     let stft = BatchStftF64::new(config.clone());

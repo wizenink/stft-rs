@@ -1,6 +1,12 @@
 /// Utility functions for signal processing and multi-channel audio
 use num_traits::Float;
 
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+
+#[cfg(feature = "std")]
+use std::vec;
+
 use crate::PadMode;
 
 /// Apply padding to a signal.

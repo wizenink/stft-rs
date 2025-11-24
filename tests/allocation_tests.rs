@@ -1,6 +1,6 @@
 mod common;
 
-use rustfft::num_complex::Complex;
+use stft_rs::fft_backend::Complex;
 use stft_rs::prelude::*;
 
 #[test]

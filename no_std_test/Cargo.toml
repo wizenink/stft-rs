@@ -1,0 +1,17 @@
+[package]
+name = "stft-nostd-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+stft-rs = { path = "..", default-features = false, features = [
+  "microfft-backend",
+] }
+num-traits = { version = "0.2", default-features = false, features = ["libm"] }
+linked_list_allocator = "0.10"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
