@@ -418,7 +418,7 @@ stft-rs can run on embedded systems without the standard library! Perfect for au
 
 ```toml
 [dependencies]
-stft-rs = { version = "0.4", default-features = false, features = ["microfft-backend"] }
+stft-rs = { version = "0.5.0", default-features = false, features = ["microfft-backend"] }
 ```
 
 **Important notes:**
