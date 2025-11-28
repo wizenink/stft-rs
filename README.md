@@ -27,6 +27,7 @@ High-quality, streaming-friendly STFT/iSTFT implementation in Rust working with 
 - **Type Aliases**: Convenient aliases like `StftConfigF32`, `BatchStftF32` for cleaner code
 - **Spectral Operations**: Built-in helpers for magnitude/phase manipulation, filtering, and custom processing
 - **Mel Spectrograms**: Perceptual frequency analysis with HTK/Slaney scales, log-mel, and delta features → [MEL.md](MEL.md)
+- **Reassignment Method**: Sharpen time-frequency representations by redistributing energy to true signal coordinates
 - **No External Tensor Libraries**: Works directly with slices
 
 ## Quick Start
@@ -79,6 +80,58 @@ let with_deltas = log_mel.with_deltas(Some(2)); // 240 features (80*3)
 // See MEL.md for complete documentation
 ```
 
+### Reassignment Method Quick Start
+
+The reassignment method sharpens spectrograms by redistributing energy to coordinates closer to the true signal support. This is particularly useful for bass-heavy audio, transient analysis, and closely-spaced harmonics:
+
+```rust
+use stft_rs::prelude::*;
+use stft_rs::fft_backend::{FftPlanner, FftPlannerTrait};
+
+// Create STFT configuration
+let stft_config = StftConfig::<f64>::builder()
+    .fft_size(4096)
+    .hop_size(1024)
+    .window(WindowType::Hann)
+    .build()
+    .unwrap();
+
+// Create reassignment processor
+let reassign_config = ReassignmentConfig {
+    power_threshold: 1e-6,  // Threshold for reassignment
+    clip_to_bounds: true,    // Clip reassigned coordinates to valid ranges
+};
+
+let reassignment = BatchReassignment::new(stft_config, reassign_config);
+
+// Process signal
+let signal: Vec<f64> = vec![0.0; 44100];
+let sample_rate = 44100.0;
+let mut planner = FftPlanner::<f64>::new();
+let reassigned = reassignment.process(&signal, sample_rate, &mut planner);
+
+// Access reassigned coordinates
+for frame in 0..reassigned.num_frames {
+    for bin in 0..reassigned.freq_bins {
+        let magnitude = reassigned.magnitude(frame, bin);
+        let reassigned_time = reassigned.reassigned_time(frame, bin);
+        let reassigned_freq = reassigned.reassigned_freq(frame, bin);
+        // Use reassigned coordinates for analysis...
+    }
+}
+
+// Render back to regular grid for visualization
+let rendered = reassigned.render_to_grid();
+```
+
+**Use cases:**
+- Bass-heavy audio where FFT bins represent large perceptual ranges
+- Transient detection and analysis
+- Separating closely-spaced harmonics
+- Improving time-frequency resolution
+
+**See `examples/reassignment.rs` for a complete demonstration**
+
 ### Type Aliases for Convenience
 
 For cleaner code, use type aliases instead of specifying generic types:
@@ -119,6 +172,7 @@ This exports:
 - Core types: `BatchStft`, `BatchIstft`, `StreamingStft`, `StreamingIstft`, `StftConfig`, `StftConfigBuilder`, `Spectrum`, `SpectrumFrame`, `Complex`
 - Type aliases: `StftConfigF32/F64`, `StftConfigBuilderF32/F64`, `BatchStftF32/F64`, `BatchIstftF32/F64`, `StreamingStftF32/F64`, `StreamingIstftF32/F64`, `SpectrumF32/F64`, `SpectrumFrameF32/F64`
 - Mel types: `MelConfig`, `MelSpectrum`, `BatchMelSpectrogram`, `StreamingMelSpectrogram`, `MelScale`, `MelNorm` (+ F32/F64 aliases)
+- Reassignment types: `ReassignmentConfig`, `ReassignedSpectrum`, `BatchReassignment` (+ F32/F64 aliases)
 - Enums: `ReconstructionMode`, `WindowType`, `PadMode`
 - Utilities: `apply_padding`, `interleave`, `deinterleave`, `interleave_into`, `deinterleave_into`
 
@@ -504,6 +558,9 @@ cargo run --example type_aliases
 
 # Spectral operations (magnitude/phase, filtering)
 cargo run --example spectral_operations
+
+# Reassignment method for sharpened spectrograms
+cargo run --example reassignment --features rustfft-backend
 ```
 
 ## Implementation Details

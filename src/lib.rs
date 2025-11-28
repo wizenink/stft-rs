@@ -43,6 +43,7 @@ mod utils;
 pub use utils::{apply_padding, deinterleave, deinterleave_into, interleave, interleave_into};
 
 pub mod mel;
+pub mod reassignment;
 
 pub mod prelude {
     pub use crate::fft_backend::Complex;
@@ -51,6 +52,11 @@ pub mod prelude {
         MelConfigF32, MelConfigF64, MelFilterbank, MelFilterbankF32, MelFilterbankF64, MelNorm,
         MelScale, MelSpectrum, MelSpectrumF32, MelSpectrumF64, StreamingMelSpectrogram,
         StreamingMelSpectrogramF32, StreamingMelSpectrogramF64,
+    };
+    pub use crate::reassignment::{
+        BatchReassignment, BatchReassignmentF32, BatchReassignmentF64, ReassignedSpectrum,
+        ReassignedSpectrumF32, ReassignedSpectrumF64, ReassignmentConfig, ReassignmentConfigF32,
+        ReassignmentConfigF64,
     };
     pub use crate::utils::{
         apply_padding, deinterleave, deinterleave_into, interleave, interleave_into,
