@@ -26,17 +26,25 @@ fn test_config_invalid_ola() {
 #[allow(deprecated)]
 fn test_config_invalid_fft_size() {
     let config = StftConfig::<f32>::new(4095, 1024, WindowType::Hann, ReconstructionMode::Ola);
-    assert!(matches!(config, Err(_)));
+    assert!(config.is_err());
+}
+
+#[cfg(feature = "rustfft-backend")]
+#[test]
+#[allow(deprecated)]
+fn test_config_fft_size_not_power_of_two() {
+    let config = StftConfig::<f32>::new(4095, 1024, WindowType::Hann, ReconstructionMode::Ola);
+    assert!(config.is_ok());
 }
 
 #[test]
 #[allow(deprecated)]
 fn test_config_invalid_hop_size() {
     let config = StftConfig::<f32>::new(4096, 0, WindowType::Hann, ReconstructionMode::Ola);
-    assert!(matches!(config, Err(_)));
+    assert!(config.is_err());
 
     let config = StftConfig::<f32>::new(4096, 5000, WindowType::Hann, ReconstructionMode::Ola);
-    assert!(matches!(config, Err(_)));
+    assert!(config.is_err());
 }
 
 // Builder pattern tests
@@ -76,17 +84,13 @@ fn test_builder_with_reconstruction_mode() {
 
 #[test]
 fn test_builder_missing_fft_size() {
-    let config = StftConfig::<f32>::builder()
-        .hop_size(1024)
-        .build();
+    let config = StftConfig::<f32>::builder().hop_size(1024).build();
     assert!(config.is_err());
 }
 
 #[test]
 fn test_builder_missing_hop_size() {
-    let config = StftConfig::<f32>::builder()
-        .fft_size(4096)
-        .build();
+    let config = StftConfig::<f32>::builder().fft_size(4096).build();
     assert!(config.is_err());
 }
 
@@ -98,6 +102,16 @@ fn test_builder_invalid_fft_size() {
         .hop_size(1024)
         .build();
     assert!(config.is_err());
+}
+
+#[cfg(feature = "rustfft-backend")]
+#[test]
+fn test_builder_fft_size_not_power_of_two() {
+    let config = StftConfig::<f32>::builder()
+        .fft_size(4095) // Not a power of 2
+        .hop_size(1024)
+        .build();
+    assert!(config.is_ok());
 }
 
 #[test]
