@@ -14,7 +14,7 @@ use core::fmt;
 use num_traits::Float;
 
 /// Mel scale variant for frequency conversion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MelScale {
     /// HTK mel scale formula: 2595 * log10(1 + hz/700)
     Htk,
@@ -25,7 +25,7 @@ pub enum MelScale {
 }
 
 /// Normalization method for mel filterbank.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MelNorm {
     /// No normalization
     None,
@@ -35,7 +35,7 @@ pub enum MelNorm {
 }
 
 /// Configuration for mel spectrogram computation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MelConfig<T: Float> {
     /// Number of mel bands (default: 80 for speech/Whisper)
     pub n_mels: usize,
@@ -138,7 +138,7 @@ pub fn mel_to_hz<T: Float>(mel: T, scale: MelScale) -> T {
 ///
 /// Stores triangular filters as a sparse matrix where each mel bin
 /// has weights for the relevant STFT frequency bins.
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MelFilterbank<T: Float> {
     /// Number of mel bands
     pub n_mels: usize,
@@ -302,7 +302,7 @@ impl<T: Float + fmt::Debug> MelFilterbank<T> {
 /// Mel-scale spectrum data structure.
 ///
 /// Stores mel spectrogram as (num_frames x n_mels) in row-major order.
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MelSpectrum<T: Float> {
     /// Number of time frames
     pub num_frames: usize,
@@ -498,6 +498,7 @@ impl<T: Float> MelSpectrum<T> {
 /// Batch mel spectrogram processor.
 ///
 /// Converts STFT Spectrum to mel-scale representation.
+#[derive(Debug, Clone)]
 pub struct BatchMelSpectrogram<T: Float> {
     filterbank: MelFilterbank<T>,
     use_power: bool,
@@ -596,6 +597,7 @@ impl<T: Float + fmt::Debug> BatchMelSpectrogram<T> {
 /// Streaming mel spectrogram processor.
 ///
 /// Processes individual STFT frames into mel-scale frames.
+#[derive(Debug, Clone)]
 pub struct StreamingMelSpectrogram<T: Float> {
     filterbank: MelFilterbank<T>,
     use_power: bool,

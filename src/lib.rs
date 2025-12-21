@@ -66,7 +66,7 @@ pub mod prelude {
     };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReconstructionMode {
     /// Overlap-Add: normalize by sum(w), requires COLA condition
     Ola,
@@ -75,7 +75,7 @@ pub enum ReconstructionMode {
     Wola,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WindowType {
     Hann,
     Hamming,
@@ -122,14 +122,14 @@ impl<T: Float + fmt::Display + fmt::Debug> fmt::Display for ConfigError<T> {
 #[cfg(feature = "std")]
 impl<T: Float + fmt::Display + fmt::Debug> std::error::Error for ConfigError<T> {}
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PadMode {
     Reflect,
     Zero,
     Edge,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StftConfig<T: Float> {
     pub fft_size: usize,
     pub hop_size: usize,
@@ -286,6 +286,7 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
 }
 
 /// Builder for StftConfig with fluent API
+#[derive(Debug, Clone, PartialEq)]
 pub struct StftConfigBuilder<T: Float> {
     fft_size: Option<usize>,
     hop_size: Option<usize>,
@@ -384,7 +385,7 @@ fn generate_window<T: Float + FromPrimitive>(window_type: WindowType, size: usiz
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpectrumFrame<T: Float> {
     pub freq_bins: usize,
     pub data: Vec<Complex<T>>,
@@ -474,7 +475,7 @@ impl<T: Float> SpectrumFrame<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Spectrum<T: Float> {
     pub num_frames: usize,
     pub freq_bins: usize,
@@ -609,6 +610,7 @@ impl<T: Float> Spectrum<T> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BatchStft<T: Float + FftNum> {
     config: StftConfig<T>,
     window: Vec<T>,
@@ -821,6 +823,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchStft<T> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct BatchIstft<T: Float + FftNum> {
     config: StftConfig<T>,
     window: Vec<T>,
@@ -1085,6 +1088,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> BatchIstft<T> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct StreamingStft<T: Float + FftNum> {
     config: StftConfig<T>,
     window: Vec<T>,
@@ -1235,6 +1239,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingStft<T> {
 }
 
 /// Multi-channel streaming STFT processor with independent state per channel.
+#[derive(Debug, Clone)]
 pub struct MultiChannelStreamingStft<T: Float + FftNum> {
     processors: Vec<StreamingStft<T>>,
 }
@@ -1333,6 +1338,7 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct StreamingIstft<T: Float + FftNum> {
     config: StftConfig<T>,
     window: Vec<T>,
@@ -1568,6 +1574,7 @@ impl<T: Float + FftNum + FromPrimitive + fmt::Debug> StreamingIstft<T> {
 }
 
 /// Multi-channel streaming iSTFT processor with independent state per channel.
+#[derive(Debug, Clone)]
 pub struct MultiChannelStreamingIstft<T: Float + FftNum> {
     processors: Vec<StreamingIstft<T>>,
 }

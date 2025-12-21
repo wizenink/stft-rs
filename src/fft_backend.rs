@@ -43,7 +43,7 @@ pub use rustfft::num_complex::Complex;
 
 // For microfft backend, we define our own Complex type
 #[cfg(feature = "microfft-backend")]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Complex<T> {
     pub re: T,
     pub im: T,
@@ -144,7 +144,7 @@ impl FftNum for f32 {}
 impl FftNum for f64 {}
 
 /// Trait abstracting FFT operations for both forward and inverse transforms
-pub trait FftBackend<T: FftNum>: Send + Sync {
+pub trait FftBackend<T: FftNum>: Send + Sync + core::fmt::Debug {
     /// Process FFT in-place
     fn process(&self, buffer: &mut [Complex<T>]);
 
@@ -181,6 +181,14 @@ mod rustfft_impl {
     /// Wrapper around rustfft's Fft that implements our FftBackend trait
     struct RustFftWrapper<T: rustfft::FftNum> {
         fft: Arc<dyn Fft<T>>,
+    }
+
+    impl<T: rustfft::FftNum> core::fmt::Debug for RustFftWrapper<T> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("RustFftWrapper")
+                .field("fft_size", &self.fft.len())
+                .finish()
+        }
     }
 
     impl<T: FftNum> FftBackend<T> for RustFftWrapper<T> {
@@ -243,10 +251,12 @@ mod microfft_impl {
 
     /// Wrapper around microfft that implements our FftBackend trait
     /// Note: microfft only supports f32 and power-of-2 sizes up to 4096
+    #[derive(Debug, Clone)]
     struct MicroFftForward {
         size: usize,
     }
 
+    #[derive(Debug, Clone)]
     struct MicroFftInverse {
         size: usize,
     }
