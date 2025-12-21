@@ -157,7 +157,7 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
         window: WindowType,
         reconstruction_mode: ReconstructionMode,
     ) -> Result<Self, ConfigError<T>> {
-        if fft_size == 0 || !fft_size.is_power_of_two() {
+        if fft_size == 0 || !(cfg!(feature = "rustfft-backend") || fft_size.is_power_of_two()) {
             return Err(ConfigError::InvalidFftSize);
         }
         if hop_size == 0 || hop_size > fft_size {
@@ -361,21 +361,21 @@ fn generate_window<T: Float + FromPrimitive>(window_type: WindowType, size: usiz
                 let half = T::from(0.5).unwrap();
                 let one = T::one();
                 let i_t = T::from(i).unwrap();
-                let size_t = T::from(size).unwrap();  // Use N, not N-1 for periodic window
+                let size_t = T::from(size).unwrap(); // Use N, not N-1 for periodic window
                 half * (one - (two * pi * i_t / size_t).cos())
             })
             .collect(),
         WindowType::Hamming => (0..size)
             .map(|i| {
                 let i_t = T::from(i).unwrap();
-                let size_t = T::from(size).unwrap();  // Use N, not N-1 for periodic window
+                let size_t = T::from(size).unwrap(); // Use N, not N-1 for periodic window
                 T::from(0.54).unwrap() - T::from(0.46).unwrap() * (two * pi * i_t / size_t).cos()
             })
             .collect(),
         WindowType::Blackman => (0..size)
             .map(|i| {
                 let i_t = T::from(i).unwrap();
-                let size_t = T::from(size).unwrap();  // Use N, not N-1 for periodic window
+                let size_t = T::from(size).unwrap(); // Use N, not N-1 for periodic window
                 let angle = two * pi * i_t / size_t;
                 T::from(0.42).unwrap() - T::from(0.5).unwrap() * angle.cos()
                     + T::from(0.08).unwrap() * (two * angle).cos()
