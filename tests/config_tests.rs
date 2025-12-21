@@ -21,6 +21,7 @@ fn test_config_invalid_ola() {
     assert!(config.is_err())
 }
 
+#[cfg(not(feature = "rustfft-backend"))]
 #[test]
 #[allow(deprecated)]
 fn test_config_invalid_fft_size() {
@@ -89,6 +90,7 @@ fn test_builder_missing_hop_size() {
     assert!(config.is_err());
 }
 
+#[cfg(not(feature = "rustfft-backend"))]
 #[test]
 fn test_builder_invalid_fft_size() {
     let config = StftConfig::<f32>::builder()

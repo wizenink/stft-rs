@@ -157,7 +157,7 @@ impl<T: Float + FromPrimitive + fmt::Debug> StftConfig<T> {
         window: WindowType,
         reconstruction_mode: ReconstructionMode,
     ) -> Result<Self, ConfigError<T>> {
-        if fft_size == 0 || !fft_size.is_power_of_two() {
+        if fft_size == 0 || !(cfg!(feature = "rustfft-backend") || fft_size.is_power_of_two()) {
             return Err(ConfigError::InvalidFftSize);
         }
         if hop_size == 0 || hop_size > fft_size {
