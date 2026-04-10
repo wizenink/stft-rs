@@ -22,10 +22,10 @@ microfft-backend = ["dep:microfft"]
 rayon = ["rustfft-backend", "dep:rayon"]
 
 [dev-dependencies]
-criterion = { version = "0.7.0", features = ["html_reports"] }
-ndarray-stats = "0.6.0"
-rand = "0.9.2"
-rand_distr = "0.5.1"
+criterion = { version = "0.8.2", features = ["html_reports"] }
+ndarray-stats = "0.7.0"
+rand = "0.10.0"
+rand_distr = "0.6.0"
 
 [[bench]]
 name = "stft-bench"
