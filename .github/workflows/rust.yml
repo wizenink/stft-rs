@@ -14,7 +14,7 @@ jobs:
   test-rustfft:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Build with rustfft (default)
       run: cargo build --verbose
     - name: Run tests with rustfft
@@ -26,7 +26,7 @@ jobs:
   test-microfft:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Build with microfft (no_std)
       run: cargo build --no-default-features --features microfft-backend --verbose
     - name: Run tests with microfft
@@ -38,12 +38,12 @@ jobs:
   backend-comparison:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: Run backend comparison script
       run: ./scripts/compare_backends.sh
     - name: Upload comparison results
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: backend-comparison-results
         path: results_*.txt
